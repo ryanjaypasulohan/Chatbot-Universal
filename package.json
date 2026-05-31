@@ -1,0 +1,16 @@
+{
+  "name": "ai-universal-chatbot",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter \"@ai-chatbot/api\" run dev",
+    "build:api": "pnpm --filter \"@ai-chatbot/api\" run build",
+    "start:api": "pnpm --filter \"@ai-chatbot/api\" run start"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "tsx": "^4.22.3"
+  }
+}
