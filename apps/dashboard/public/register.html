@@ -1,59 +1,62 @@
-<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Register - AI Chatbot Dashboard</title>
-    <style>
-      body { font-family: Arial, sans-serif; background:#f4f7fb; display:flex; align-items:center; justify-content:center; height:100vh; margin:0; }
-      .card { background:#fff; padding:24px; border-radius:12px; box-shadow:0 8px 24px rgba(15,23,42,0.08); width:320px }
-      input, button { width:100%; padding:10px 12px; margin-top:8px; border-radius:8px; border:1px solid #d1d5db }
-      button { background:#2563eb; color:#fff; border:none; cursor:pointer }
-      .link { margin-top:12px; text-align:center }
-    </style>
-  </head>
-  <body>
-    <div class="card">
-      <h2>Create account</h2>
-      <label>Email</label>
-      <input id="email" type="email" />
-      <label>Password</label>
-      <input id="password" type="password" />
-      <button id="registerBtn">Register</button>
-
-      <div class="link">
-        <a href="/login.html">Already have an account? Sign in</a>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Register — Wild Script</title>
+  <link rel="icon" href="/assets/logo.webp" type="image/svg+xml" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/wildscript.css" />
+</head>
+<body>
+  <div class="ws-auth-page">
+    <div class="ws-auth-card">
+      <div style="text-align:center">
+        <img src="/assets/logo.webp" alt="Wild Script" width="56" height="56" />
+        <h1 class="ws-logo-text" style="font-size:1.75rem;margin-top:12px">Create account</h1>
+        <p class="ws-card-desc">Start building AI chatbots for your websites</p>
       </div>
-      <div id="msg" style="margin-top:8px;color:#ef4444"></div>
+
+      <label for="email">Email</label>
+      <input id="email" type="email" autocomplete="email" placeholder="you@company.com" />
+
+      <label for="password">Password</label>
+      <input id="password" type="password" autocomplete="new-password" placeholder="Min. 6 characters" />
+
+      <button type="button" class="ws-btn ws-btn-primary" id="registerBtn" style="width:100%">Create account</button>
+
+      <p style="text-align:center;margin-top:20px;color:var(--ws-text-muted)">
+        Already have an account? <a href="/login.html">Sign in</a>
+      </p>
+      <div id="msg"></div>
     </div>
+  </div>
 
-    <script src="/config.js"></script>
-    <script type="module">
-      import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+  <script src="/config.js"></script>
+  <script type="module">
+    import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+    import { Auth } from '/js/auth.js';
 
-      // TODO: replace with your Supabase project values
-      const SUPABASE_URL = window.SUPABASE_URL || '<YOUR_SUPABASE_URL>';
-      const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || '<YOUR_SUPABASE_ANON_KEY>';
+    const supabase = createClient(window.SUPABASE_URL || '', window.SUPABASE_ANON_KEY || '');
+    const msgEl = document.getElementById('msg');
 
-      const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    document.getElementById('registerBtn').addEventListener('click', async () => {
+      msgEl.innerHTML = '';
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+      if (!email || !password) {
+        msgEl.innerHTML = '<div class="ws-alert ws-alert-error">Provide email and password.</div>';
+        return;
+      }
 
-      const emailEl = document.getElementById('email');
-      const passEl = document.getElementById('password');
-      const msgEl = document.getElementById('msg');
+      const { error } = await supabase.auth.signUp({ email, password });
+      if (error) {
+        msgEl.innerHTML = `<div class="ws-alert ws-alert-error">${error.message}</div>`;
+        return;
+      }
 
-      document.getElementById('registerBtn').addEventListener('click', async () => {
-        msgEl.textContent = '';
-        const email = emailEl.value.trim();
-        const password = passEl.value;
-        if (!email || !password) { msgEl.textContent = 'Provide email and password.'; return; }
-
-        const { data, error } = await supabase.auth.signUp({ email, password });
-        if (error) { msgEl.textContent = error.message || String(error); return; }
-
-        // On successful sign up, Supabase may require email confirmation.
-        msgEl.style.color = '#059669';
-        msgEl.textContent = 'Account created. Check your email to confirm sign up.';
-      });
-    </script>
-  </body>
+      msgEl.innerHTML = '<div class="ws-alert ws-alert-success">Account created. Check your email to confirm, then <a href="/login.html">sign in</a>.</div>';
+    });
+  </script>
+</body>
 </html>

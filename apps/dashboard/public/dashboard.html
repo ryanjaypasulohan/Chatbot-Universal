@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard — Wild Script</title>
+  <link rel="icon" href="/assets/logo.webp" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/wildscript.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="ws-toast-container" id="toastContainer"></div>
+
+  <div class="ws-app">
+    <aside class="ws-sidebar" id="sidebar">
+      <a href="/dashboard.html" class="ws-logo">
+        <img src="/assets/logo.webp" alt="Wild Script" />
+        <div>
+          <span class="ws-logo-text">Wild Script</span>
+          <span class="ws-logo-sub">AI Chatbot Platform</span>
+        </div>
+      </a>
+      <nav>
+        <ul class="ws-nav">
+          <li><button type="button" class="ws-nav-item active" data-tab="chatbots"><span class="ws-nav-icon">🤖</span> Chatbots</button></li>
+          <li><button type="button" class="ws-nav-item" data-tab="knowledge"><span class="ws-nav-icon">📚</span> Knowledge Base</button></li>
+          <li><button type="button" class="ws-nav-item" data-tab="training"><span class="ws-nav-icon">🧠</span> AI Configuration</button></li>
+          <li><button type="button" class="ws-nav-item" data-tab="widget"><span class="ws-nav-icon">💬</span> Widget</button></li>
+          <li><button type="button" class="ws-nav-item" data-tab="analytics"><span class="ws-nav-icon">📊</span> Analytics</button></li>
+          <li><button type="button" class="ws-nav-item" data-tab="conversations"><span class="ws-nav-icon">💭</span> Conversations</button></li>
+          <li><button type="button" class="ws-nav-item" data-tab="account"><span class="ws-nav-icon">👤</span> Account</button></li>
+        </ul>
+      </nav>
+    </aside>
+
+    <div class="ws-main">
+      <header class="ws-header">
+        <div style="display:flex;align-items:center;gap:12px">
+          <button type="button" class="ws-mobile-toggle" id="menuToggle" aria-label="Menu">☰</button>
+          <h1 style="margin:0;font-size:1.25rem" id="pageTitle">Chatbots</h1>
+        </div>
+        <div class="ws-auth-nav" id="authControls"></div>
+      </header>
+
+      <div class="ws-content">
+        <!-- CHATBOTS -->
+        <section id="chatbots" class="tab-content active">
+          <div class="ws-card">
+            <h2>Create chatbot</h2>
+            <p class="ws-card-desc">Each chatbot can be trained on a website, documents, or custom knowledge.</p>
+            <div class="ws-grid-2">
+              <div>
+                <label data-tooltip="Your website domain">Domain</label>
+                <input id="domain" placeholder="example.com" />
+              </div>
+              <div>
+                <label>Start URL (optional)</label>
+                <input id="startUrl" placeholder="https://example.com" />
+              </div>
+            </div>
+            <button type="button" class="ws-btn ws-btn-primary" id="createWebsite">Create chatbot</button>
+            <div id="createResult"></div>
+          </div>
+
+          <div class="ws-card">
+            <h2>Crawl website</h2>
+            <p class="ws-card-desc">Train your chatbot from live web pages. Single page or full site crawl.</p>
+            <label>Select chatbot</label>
+            <select id="crawlWebsiteSelect"><option value="">Choose a chatbot...</option></select>
+            <input id="crawlWebsiteId" type="hidden" />
+            <label>Start URL (optional)</label>
+            <input id="crawlUrl" placeholder="https://example.com" />
+            <div class="ws-btn-group">
+              <button type="button" class="ws-btn ws-btn-primary" id="startCrawlFull">Crawl entire site</button>
+              <button type="button" class="ws-btn ws-btn-secondary" id="startCrawlSingle">Crawl single page</button>
+            </div>
+            <div id="crawlResult"></div>
+          </div>
+
+          <div class="ws-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+              <h2 style="margin:0">Your chatbots</h2>
+              <button type="button" class="ws-btn ws-btn-secondary ws-btn-sm" id="retryWebsites">Retry</button>
+            </div>
+            <div id="websiteList"><div class="ws-skeleton"></div><div class="ws-skeleton"></div></div>
+          </div>
+
+          <div class="ws-card">
+            <h2>Embed script</h2>
+            <p class="ws-card-desc">Paste this on your site before the closing <code>&lt;/body&gt;</code> tag.</p>
+            <pre id="embedSnippet" class="ws-code-block">Create a chatbot to generate your embed code.</pre>
+            <div class="ws-btn-group">
+              <button type="button" class="ws-btn ws-btn-primary ws-btn-sm" id="copyEmbedBtn">Copy Script</button>
+              <a href="/embed-instructions.html" class="ws-btn ws-btn-secondary ws-btn-sm" style="text-decoration:none">View Instructions</a>
+            </div>
+            <div id="embedMsg"></div>
+          </div>
+        </section>
+
+        <!-- KNOWLEDGE BASE -->
+        <section id="knowledge" class="tab-content">
+          <div class="ws-card">
+            <h2>Knowledge base</h2>
+            <p class="ws-card-desc">View, search, and manage indexed content used to train your chatbot.</p>
+            <label>Select chatbot</label>
+            <select id="contentWebsiteId"><option value="">Choose a chatbot...</option></select>
+            <label>Search documents</label>
+            <input id="knowledgeSearch" placeholder="Search by title or URL..." />
+            <button type="button" class="ws-btn ws-btn-secondary ws-btn-sm" id="refreshPages">Refresh</button>
+            <div id="contentResult"></div>
+            <div id="pagesList"></div>
+          </div>
+          <div class="ws-card">
+            <h2>Manual knowledge (coming soon)</h2>
+            <p class="ws-card-desc">Upload PDF, DOCX, TXT, CSV, Markdown, or add Q&amp;A pairs. Use website crawl for now.</p>
+          </div>
+        </section>
+
+        <!-- AI CONFIG -->
+        <section id="training" class="tab-content">
+          <div class="ws-card">
+            <h2>AI personality &amp; response settings</h2>
+            <label>Select chatbot</label>
+            <select id="aiWebsiteId"><option value="">Choose a chatbot...</option></select>
+            <label>Personality</label>
+            <div class="ws-chips" id="personalityChips">
+              <button type="button" class="ws-chip" data-value="professional">Professional</button>
+              <button type="button" class="ws-chip" data-value="friendly">Friendly</button>
+              <button type="button" class="ws-chip" data-value="sales">Sales Agent</button>
+              <button type="button" class="ws-chip" data-value="support">Customer Support</button>
+              <button type="button" class="ws-chip" data-value="technical">Technical Assistant</button>
+              <button type="button" class="ws-chip" data-value="creative">Creative Assistant</button>
+            </div>
+            <label>Temperature <span id="tempValue">0.7</span></label>
+            <input type="range" id="aiTemperature" min="0" max="1" step="0.1" value="0.7" />
+            <label>Response length</label>
+            <select id="responseLength">
+              <option value="short">Short</option>
+              <option value="medium" selected>Medium</option>
+              <option value="long">Long</option>
+            </select>
+            <label>Language</label>
+            <select id="aiLanguage">
+              <option value="en">English</option>
+              <option value="es">Spanish</option>
+              <option value="fr">French</option>
+              <option value="de">German</option>
+            </select>
+            <label>Tone</label>
+            <input id="aiTone" placeholder="helpful, concise, empathetic..." />
+            <button type="button" class="ws-btn ws-btn-primary" id="saveAiConfig">Save AI settings</button>
+            <div id="aiConfigResult"></div>
+          </div>
+        </section>
+
+        <!-- WIDGET -->
+        <section id="widget" class="tab-content">
+          <div class="ws-card">
+            <h2>Widget customization</h2>
+            <label>Select chatbot</label>
+            <select id="widgetWebsiteId"><option value="">Choose a chatbot...</option></select>
+            <label>Logo / Avatar URL</label>
+            <input id="avatarUrl" placeholder="https://example.com/avatar.png" />
+            <label>Welcome message</label>
+            <textarea id="greetingMessage" placeholder="Hello! How can I help you today?"></textarea>
+            <label>Position</label>
+            <div class="position-grid">
+              <button type="button" class="position-btn" data-pos="top-left">↖ Top-Left</button>
+              <button type="button" class="position-btn" data-pos="top-right">↗ Top-Right</button>
+              <button type="button" class="position-btn" data-pos="middle-left">← Middle</button>
+              <button type="button" class="position-btn" data-pos="middle-right">→ Middle</button>
+              <button type="button" class="position-btn" data-pos="bottom-left">↙ Bottom-L</button>
+              <button type="button" class="position-btn selected" data-pos="bottom-right">↘ Bottom-R</button>
+            </div>
+            <input id="selectedPosition" type="hidden" value="bottom-right" />
+            <label>Theme</label>
+            <select id="theme"><option value="dark">Dark</option><option value="light">Light</option></select>
+            <label>Primary color</label>
+            <input id="primaryColor" type="color" value="#00E5FF" />
+            <label>Suggested prompts (comma-separated)</label>
+            <input id="suggestedPrompts" placeholder="Pricing, Contact us, Features" />
+            <label><input type="checkbox" id="autoOpen" /> Auto-open widget on page load</label>
+            <button type="button" class="ws-btn ws-btn-primary" id="saveWidgetSettings">Save widget settings</button>
+            <div id="widgetResult"></div>
+          </div>
+        </section>
+
+        <!-- ANALYTICS -->
+        <section id="analytics" class="tab-content">
+          <div class="ws-card">
+            <h2>Analytics</h2>
+            <label>Select chatbot</label>
+            <select id="analyticsWebsiteId"><option value="">Choose a chatbot...</option></select>
+            <div id="analyticsStats" class="ws-stats-grid"></div>
+            <div class="ws-chart-wrap"><canvas id="analyticsChart"></canvas></div>
+          </div>
+        </section>
+
+        <!-- CONVERSATIONS -->
+        <section id="conversations" class="tab-content">
+          <div class="ws-card">
+            <h2>Conversation history</h2>
+            <label>Select chatbot</label>
+            <select id="convWebsiteId"><option value="">Choose a chatbot...</option></select>
+            <label>Date range (optional)</label>
+            <div class="search-row">
+              <input id="startDate" type="date" />
+              <input id="endDate" type="date" />
+              <button type="button" class="ws-btn ws-btn-secondary" id="searchConvBtn">Search</button>
+              <button type="button" class="ws-btn ws-btn-secondary ws-btn-sm" id="clearConvBtn">Clear</button>
+            </div>
+            <h3>Conversations</h3>
+            <div id="conversationsList" class="chat-container">Select a chatbot to load conversations.</div>
+            <h3>Messages</h3>
+            <div id="messagesList" class="chat-container">Select a conversation to view messages.</div>
+          </div>
+        </section>
+
+        <!-- ACCOUNT -->
+        <section id="account" class="tab-content">
+          <div class="ws-card">
+            <h2>Account settings</h2>
+            <div id="accountInfo">Loading...</div>
+            <label>Display name</label>
+            <input id="displayName" placeholder="Your name" />
+            <label>Avatar URL</label>
+            <input id="accountAvatar" placeholder="https://example.com/avatar.png" />
+            <button type="button" class="ws-btn ws-btn-primary" id="saveProfile">Update profile</button>
+            <button type="button" class="ws-btn ws-btn-danger" id="deleteAccount">Delete account data</button>
+            <div id="accountResult"></div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <script src="/config.js"></script>
+  <script type="module" src="/dashboard.js?v=2"></script>
+</body>
+</html>

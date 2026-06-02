@@ -4,11 +4,14 @@
   "private": true,
   "scripts": {
     "dev": "pnpm --filter \"@ai-chatbot/api\" run dev",
-    "build:api": "pnpm --filter \"@ai-chatbot/api\" run build",
-    "start:api": "pnpm --filter \"@ai-chatbot/api\" run start"
+    "build": "pnpm --filter @ai-chatbot/shared run build && pnpm --filter @ai-chatbot/embeddings run build && pnpm --filter @ai-chatbot/api run build",
+    "build:api": "pnpm run build",
+    "start": "pnpm --filter @ai-chatbot/api run start",
+    "start:api": "pnpm run start"
   },
+  "packageManager": "pnpm@9.15.0",
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "devDependencies": {
     "tsx": "^4.22.3"

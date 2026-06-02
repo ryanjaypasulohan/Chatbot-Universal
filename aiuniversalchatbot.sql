@@ -1,84 +1,69 @@
 -- WARNING: This schema is for context only and is not meant to be run.
 -- Table order and constraints may not be valid for execution.
 
-CREATE TABLE public.profiles (
-  id uuid NOT NULL,
-  email text NOT NULL,
-  full_name text,
-  plan text NOT NULL DEFAULT 'free'::text,
+CREATE TABLE public.users (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  email text NOT NULL UNIQUE,
+  name text,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
-  CONSTRAINT profiles_pkey PRIMARY KEY (id),
-  CONSTRAINT profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id)
+  CONSTRAINT users_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.websites (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
-  user_id uuid NOT NULL,
-  name text NOT NULL,
-  url text NOT NULL,
-  api_key text NOT NULL DEFAULT ('cw_'::text || replace((gen_random_uuid())::text, '-'::text, ''::text)) UNIQUE,
-  status text NOT NULL DEFAULT 'pending'::text,
-  widget_color text NOT NULL DEFAULT '#00D4AA'::text,
-  widget_name text NOT NULL DEFAULT 'AI Assistant'::text,
-  widget_greeting text NOT NULL DEFAULT 'Hi! How can I help you today?'::text,
-  widget_position text NOT NULL DEFAULT 'bottom-right'::text,
-  last_crawled_at timestamp with time zone,
-  pages_indexed integer DEFAULT 0,
+  user_id uuid,
+  domain text NOT NULL UNIQUE,
+  embed_code text NOT NULL UNIQUE,
+  settings jsonb DEFAULT '{}'::jsonb,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
-  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  last_crawled_at timestamp with time zone,
   CONSTRAINT websites_pkey PRIMARY KEY (id),
-  CONSTRAINT websites_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id)
+  CONSTRAINT websites_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
 );
 CREATE TABLE public.website_pages (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   website_id uuid NOT NULL,
   url text NOT NULL,
   title text,
-  content text,
-  crawled_at timestamp with time zone NOT NULL DEFAULT now(),
+  content text NOT NULL,
+  last_modified timestamp with time zone DEFAULT now(),
   CONSTRAINT website_pages_pkey PRIMARY KEY (id),
   CONSTRAINT website_pages_website_id_fkey FOREIGN KEY (website_id) REFERENCES public.websites(id)
 );
 CREATE TABLE public.embeddings (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
-  website_id uuid NOT NULL,
   page_id uuid NOT NULL,
-  chunk_text text NOT NULL,
   chunk_index integer NOT NULL,
+  content text NOT NULL,
   embedding USER-DEFINED,
-  created_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT embeddings_pkey PRIMARY KEY (id),
-  CONSTRAINT embeddings_website_id_fkey FOREIGN KEY (website_id) REFERENCES public.websites(id),
   CONSTRAINT embeddings_page_id_fkey FOREIGN KEY (page_id) REFERENCES public.website_pages(id)
 );
 CREATE TABLE public.chat_sessions (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   website_id uuid NOT NULL,
-  visitor_id text NOT NULL,
-  language text DEFAULT 'en'::text,
-  started_at timestamp with time zone NOT NULL DEFAULT now(),
-  last_msg_at timestamp with time zone NOT NULL DEFAULT now(),
+  visitor_id text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  ended_at timestamp with time zone,
   CONSTRAINT chat_sessions_pkey PRIMARY KEY (id),
   CONSTRAINT chat_sessions_website_id_fkey FOREIGN KEY (website_id) REFERENCES public.websites(id)
 );
 CREATE TABLE public.messages (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   session_id uuid NOT NULL,
-  website_id uuid NOT NULL,
   role text NOT NULL CHECK (role = ANY (ARRAY['user'::text, 'assistant'::text])),
   content text NOT NULL,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT messages_pkey PRIMARY KEY (id),
-  CONSTRAINT messages_session_id_fkey FOREIGN KEY (session_id) REFERENCES public.chat_sessions(id),
-  CONSTRAINT messages_website_id_fkey FOREIGN KEY (website_id) REFERENCES public.websites(id)
+  CONSTRAINT messages_session_id_fkey FOREIGN KEY (session_id) REFERENCES public.chat_sessions(id)
 );
 CREATE TABLE public.leads (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
-  website_id uuid NOT NULL,
+  website_id uuid,
   session_id uuid,
   name text,
   email text,
   phone text,
-  notes text,
+  message text,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT leads_pkey PRIMARY KEY (id),
   CONSTRAINT leads_website_id_fkey FOREIGN KEY (website_id) REFERENCES public.websites(id),
@@ -86,14 +71,12 @@ CREATE TABLE public.leads (
 );
 CREATE TABLE public.usage_logs (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
-  website_id uuid NOT NULL,
-  user_id uuid NOT NULL,
-  message_count integer NOT NULL DEFAULT 1,
+  website_id uuid,
+  message_count integer DEFAULT 1,
   tokens_used integer DEFAULT 0,
-  logged_date date NOT NULL DEFAULT CURRENT_DATE,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT usage_logs_pkey PRIMARY KEY (id),
-  CONSTRAINT usage_logs_website_id_fkey FOREIGN KEY (website_id) REFERENCES public.websites(id),
-  CONSTRAINT usage_logs_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id)
+  CONSTRAINT usage_logs_website_id_fkey FOREIGN KEY (website_id) REFERENCES public.websites(id)
 );
 CREATE TABLE public.widget_settings (
   id uuid NOT NULL DEFAULT gen_random_uuid(),

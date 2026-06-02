@@ -1,0 +1,27 @@
+# Render Blueprint — free Web Service (https://render.com)
+# Dashboard + API + widget served from one Node process.
+services:
+  - type: web
+    name: wildscript
+    runtime: node
+    plan: free
+    buildCommand: corepack enable && pnpm install && pnpm run build
+    startCommand: pnpm run start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "20"
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: PUBLIC_APP_URL
+        sync: false
+      - key: ALLOWED_ORIGIN
+        sync: false

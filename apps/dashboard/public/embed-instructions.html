@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Embed Instructions — Wild Script</title>
+  <link rel="icon" href="/assets/logo.webp" type="image/svg+xml" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/wildscript.css" />
+</head>
+<body>
+  <div class="ws-app" style="display:block">
+    <header class="ws-header" style="margin-left:0">
+      <a href="/dashboard.html" class="ws-logo" style="margin:0">
+        <img src="/assets/logo.webp" alt="Wild Script" width="36" height="36" />
+        <span class="ws-logo-text">Wild Script</span>
+      </a>
+      <a href="/dashboard.html" class="ws-btn ws-btn-secondary ws-btn-sm" style="margin-top:0;text-decoration:none">← Back to Dashboard</a>
+    </header>
+    <main class="ws-content" style="max-width:800px;margin:0 auto">
+      <div class="ws-card">
+        <h1 style="margin-top:0">Installation Guide</h1>
+        <p class="ws-card-desc">Add your Wild Script chatbot to any website in under two minutes.</p>
+
+        <h2>Step 1 — Copy the embed script</h2>
+        <p class="ws-card-desc">From the dashboard, create a chatbot and click <strong>Copy Script</strong>.</p>
+
+        <h2>Step 2 — Paste before &lt;/body&gt;</h2>
+        <pre class="ws-code-block">&lt;!-- Wild Script Chatbot --&gt;
+&lt;script&gt;
+window.AI_CHATBOT_WIDGET_CONFIG = {
+  websiteId: 'YOUR_CHATBOT_ID',
+  apiUrl: 'https://your-api.com/api/chat'
+};
+&lt;/script&gt;
+&lt;script type="module" src="https://your-api.com/widget/embed.js"&gt;&lt;/script&gt;</pre>
+
+        <h2>Platform examples</h2>
+        <h3>WordPress</h3>
+        <p class="ws-card-desc">Appearance → Theme File Editor → footer.php, or use a "Custom HTML" block in the footer widget area.</p>
+        <h3>Shopify</h3>
+        <p class="ws-card-desc">Online Store → Themes → Edit code → <code>theme.liquid</code>, paste before <code>&lt;/body&gt;</code>.</p>
+        <h3>React / Next.js</h3>
+        <pre class="ws-code-block">useEffect(() => {
+  const s = document.createElement('script');
+  s.innerHTML = `window.AI_CHATBOT_WIDGET_CONFIG={...}`;
+  document.body.appendChild(s);
+  // load embed module
+}, []);</pre>
+        <h3>Plain HTML</h3>
+        <p class="ws-card-desc">Paste the snippet at the end of your <code>index.html</code> before the closing body tag.</p>
+
+        <h2>Troubleshooting</h2>
+        <ul style="color:var(--ws-text-muted);line-height:1.8">
+          <li>Ensure <code>websiteId</code> matches your chatbot in the dashboard.</li>
+          <li>API URL must point to your Wild Script API host (same origin in dev).</li>
+          <li>Crawl your site first so the bot has knowledge to answer from.</li>
+        </ul>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

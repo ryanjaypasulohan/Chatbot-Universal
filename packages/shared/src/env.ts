@@ -15,11 +15,12 @@ export const env = {
 };
 
 // Simple validation to catch missing variables early
+const OPTIONAL_KEYS = new Set(['OPENROUTER_API_KEY', 'DATABASE_URL']);
+
 export function validateEnv() {
   const missing: string[] = [];
   for (const [key, value] of Object.entries(env)) {
-    if (!value && key !== 'OPENROUTER_API_KEY') {
-      // Only OPENROUTER_API_KEY is optional in early stages
+    if (!value && !OPTIONAL_KEYS.has(key)) {
       missing.push(key);
     }
   }

@@ -13,8 +13,42 @@ import { generateEmbedding } from '@ai-chatbot/embeddings';
 validateEnv();
 
 const app = express();
-app.use(cors({ origin: true }));
+const isProduction = process.env.NODE_ENV === 'production';
+const allowedOrigin = process.env.ALLOWED_ORIGIN || process.env.PUBLIC_APP_URL || '';
+
+if (isProduction && allowedOrigin) {
+  app.use(cors({ origin: allowedOrigin, credentials: true }));
+} else {
+  app.use(cors({ origin: true }));
+}
+
+if (isProduction) {
+  app.set('trust proxy', 1);
+}
+
 app.use(express.json({ limit: '1mb' }));
+
+const CRAWL_USER_AGENT =
+  'Mozilla/5.0 (compatible; WildScriptBot/1.0; +https://wildscript.ai/bot) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+function rateLimit(maxPerMinute = 120) {
+  return (req: any, res: any, next: any) => {
+    const key = req.ip || req.socket?.remoteAddress || 'unknown';
+    const now = Date.now();
+    let entry = rateLimitMap.get(key);
+    if (!entry || now > entry.resetAt) {
+      entry = { count: 0, resetAt: now + 60_000 };
+      rateLimitMap.set(key, entry);
+    }
+    entry.count += 1;
+    if (entry.count > maxPerMinute) {
+      return res.status(429).json({ error: 'Too many requests. Please try again in a minute.' });
+    }
+    next();
+  };
+}
+app.use('/api', rateLimit(180));
 
 // Handle invalid JSON payloads gracefully (avoid server crash)
 app.use((err: any, _req: any, res: any, next: any) => {
@@ -47,18 +81,102 @@ app.get('/config.js', (req, res) => {
 
 async function getUserFromHeader(req: any) {
   const auth = (req.headers?.authorization || req.headers?.Authorization || '').toString();
-  const token = auth.split(' ')[1];
-  if (!token) return null;
+  const token = auth.replace(/^Bearer\s+/i, '').trim();
+  if (!token || token === 'Bearer') return null;
   try {
     const { data, error } = await supabase.auth.getUser(token);
-    if (error || !data?.user) {
+    if (error) {
+      console.error('Auth token verification failed:', error.message);
       return null;
     }
+    if (!data?.user) return null;
     return data.user;
   } catch (err) {
     console.error('Error verifying token', err);
     return null;
   }
+}
+
+/**
+ * Sync Supabase Auth user into public.users (websites.user_id FK targets this table).
+ * Uses auth.users.id as public.users.id so ownership queries match.
+ */
+async function ensureAppUser(authUser: { id: string; email?: string; user_metadata?: Record<string, unknown> }) {
+  const name =
+    (authUser.user_metadata?.full_name as string) ||
+    (authUser.user_metadata?.name as string) ||
+    (authUser.user_metadata?.display_name as string) ||
+    null;
+
+  const { error } = await supabase.from('users').upsert(
+    {
+      id: authUser.id,
+      email: authUser.email || '',
+      name,
+    },
+    { onConflict: 'id' },
+  );
+
+  if (error) {
+    console.error('ensureAppUser failed:', error.message);
+    throw new Error(`Could not sync user record: ${error.message}`);
+  }
+}
+
+async function getAppUserProfile(userId: string) {
+  let { data, error } = await supabase.from('users').select('id,email,name,avatar_url,created_at').eq('id', userId).maybeSingle();
+  if (error?.message?.includes('avatar_url')) {
+    const fallback = await supabase.from('users').select('id,email,name,created_at').eq('id', userId).maybeSingle();
+    data = fallback.data ? { ...fallback.data, avatar_url: null } : null;
+    error = fallback.error;
+  }
+  if (error) throw error;
+  return data;
+}
+
+function mapUserToProfile(row: any) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    email: row.email,
+    name: row.name,
+    display_name: row.name,
+    avatar_url: row.avatar_url ?? null,
+    created_at: row.created_at,
+  };
+}
+
+function mapWidgetSettingsToClient(row: any, websiteId: string) {
+  if (!row) {
+    return {
+      websiteId,
+      avatarUrl: null,
+      greetingMessage: 'Hello! How can I help you today?',
+      position: 'bottom-right',
+      theme: 'light',
+      primaryColor: '#00E5FF',
+    };
+  }
+  return {
+    websiteId: row.website_id || websiteId,
+    avatarUrl: row.avatar_url ?? null,
+    greetingMessage: row.greeting_message ?? 'Hello! How can I help you today?',
+    position: row.position ?? 'bottom-right',
+    theme: row.theme ?? 'light',
+    primaryColor: row.primary_color ?? '#00E5FF',
+  };
+}
+
+function widgetSettingsFromBody(websiteId: string, body: any) {
+  return {
+    website_id: websiteId,
+    avatar_url: body.avatarUrl ?? body.avatar_url ?? null,
+    greeting_message: body.greetingMessage ?? body.greeting_message ?? 'Hello! How can I help you today?',
+    position: body.position ?? 'bottom-right',
+    theme: body.theme ?? 'light',
+    primary_color: body.primaryColor ?? body.primary_color ?? '#00E5FF',
+    updated_at: new Date().toISOString(),
+  };
 }
 
 async function requireWebsiteOwnership(req: any, res: any, websiteId: string) {
@@ -68,14 +186,22 @@ async function requireWebsiteOwnership(req: any, res: any, websiteId: string) {
     return null;
   }
 
+  await ensureAppUser(user);
+
   const { data: website, error } = await supabase.from('websites').select('id,user_id,domain').eq('id', websiteId).single();
   if (error || !website) {
     res.status(404).json({ error: error?.message || 'Website not found' });
     return null;
   }
 
-  if (website.user_id !== user.id) {
-    res.status(403).json({ error: 'Forbidden' });
+  if (!website.user_id) {
+    await supabase.from('websites').update({ user_id: user.id }).eq('id', websiteId);
+    website.user_id = user.id;
+  } else if (website.user_id !== user.id) {
+    res.status(403).json({
+      error: 'You do not have permission to access this chatbot.',
+      reason: 'This resource belongs to another account.',
+    });
     return null;
   }
 
@@ -193,7 +319,7 @@ async function isAllowedByRobots(url: string) {
   try {
     const u = new URL(url);
     const robotsUrl = `${u.origin}/robots.txt`;
-    const res = await fetch(robotsUrl, { headers: { 'User-Agent': 'WildScriptBot/1.0 (+https://wildscript.example)', 'Accept': 'text/plain' } });
+    const res = await fetch(robotsUrl, { headers: { 'User-Agent': CRAWL_USER_AGENT, Accept: 'text/plain' } });
     if (!res.ok) return { allowed: true };
     const txt = await res.text();
     const lines = txt.split(/\r?\n/).map(l => l.trim());
@@ -223,13 +349,27 @@ async function isAllowedByRobots(url: string) {
   }
 }
 
-async function createOrFindWebsite(domain: string, userId?: string) {
+async function createOrFindWebsite(
+  domain: string,
+  authUser?: { id: string; email?: string; user_metadata?: Record<string, unknown> },
+) {
   const normalized = domain.trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
+  const userId = authUser?.id;
+  if (authUser) {
+    await ensureAppUser(authUser);
+  }
   const existing = await supabase.from('websites').select('*').eq('domain', normalized).maybeSingle();
   if (existing.error) {
     throw existing.error;
   }
   if (existing.data) {
+    if (userId && existing.data.user_id && existing.data.user_id !== userId) {
+      throw new Error('This domain is already registered to another account.');
+    }
+    if (userId && !existing.data.user_id) {
+      await supabase.from('websites').update({ user_id: userId }).eq('id', existing.data.id);
+      existing.data.user_id = userId;
+    }
     return existing.data;
   }
 
@@ -278,11 +418,46 @@ async function storePageAndEmbeddings(websiteId: string, url: string, title: str
   return pageChunks.length;
 }
 
-async function crawlWebsite(websiteId: string, startUrl: string, maxPages = 100) {
+function describeHttpStatus(status: number, url: string): string {
+  if (status === 403) return `Unable to access ${url}. Reason: Site blocks automated crawlers (HTTP 403).`;
+  if (status === 401) return `Unable to access ${url}. Reason: Authentication required (HTTP 401).`;
+  if (status === 404) return `Unable to access ${url}. Reason: Page not found (HTTP 404).`;
+  if (status === 429) return `Unable to access ${url}. Reason: Rate limited by the target site (HTTP 429).`;
+  if (status >= 500) return `Unable to access ${url}. Reason: Target server error (HTTP ${status}).`;
+  return `Unable to access ${url}. Reason: HTTP ${status}.`;
+}
+
+async function fetchPageForCrawl(url: string) {
+  const robotsCheck = await isAllowedByRobots(url);
+  if (!robotsCheck.allowed) {
+    return { ok: false as const, error: `Unable to access website. Reason: ${robotsCheck.reason || 'Blocked by robots.txt'}.` };
+  }
+  const response = await fetch(url, {
+    headers: {
+      'User-Agent': CRAWL_USER_AGENT,
+      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.9',
+    },
+    redirect: 'follow',
+  });
+  if (!response.ok) {
+    return { ok: false as const, error: describeHttpStatus(response.status, url) };
+  }
+  const html = await response.text();
+  return { ok: true as const, html };
+}
+
+async function crawlWebsite(
+  websiteId: string,
+  startUrl: string,
+  maxPages = 100,
+  mode: 'full' | 'single' = 'full',
+) {
   const visited = new Set<string>();
   const queue = [startUrl];
   const baseOrigin = new URL(startUrl).origin;
   const results: { url: string; chunks: number }[] = [];
+  const errors: { url: string; error: string }[] = [];
 
   while (queue.length > 0 && results.length < maxPages) {
     const nextUrl = queue.shift();
@@ -290,30 +465,38 @@ async function crawlWebsite(websiteId: string, startUrl: string, maxPages = 100)
     visited.add(nextUrl);
 
     try {
-      const robotsCheck = await isAllowedByRobots(nextUrl);
-      if (!robotsCheck.allowed) {
-        console.warn('Robots blocked:', nextUrl, robotsCheck.reason);
+      const fetched = await fetchPageForCrawl(nextUrl);
+      if (!fetched.ok) {
+        errors.push({ url: nextUrl, error: fetched.error });
+        if (results.length === 0 && errors.length === 1) break;
         continue;
       }
-        const response = await fetch(nextUrl, { headers: { 'User-Agent': 'WildScriptBot/1.0 (+https://wildscript.example)', 'Accept': 'text/html,application/xhtml+xml,application/xml' } });
-      if (!response.ok) continue;
-      const html = await response.text();
-      const { title, text } = extractTextAndTitle(html, nextUrl);
+      const { title, text } = extractTextAndTitle(fetched.html, nextUrl);
+      if (!text || text.length < 20) {
+        errors.push({ url: nextUrl, error: 'Page returned little or no readable text content.' });
+        continue;
+      }
       const chunkCount = await storePageAndEmbeddings(websiteId, nextUrl, title, text);
       results.push({ url: nextUrl, chunks: chunkCount });
 
-      extractSameDomainLinks(html, nextUrl).forEach((link) => {
+      if (mode === 'single') break;
+
+      extractSameDomainLinks(fetched.html, nextUrl).forEach((link) => {
         if (!visited.has(link) && link.startsWith(baseOrigin)) {
           queue.push(link);
         }
       });
-    } catch (error) {
+    } catch (error: any) {
+      const msg = error?.message?.includes('fetch')
+        ? `Unable to access website. Reason: Network error or invalid URL.`
+        : error?.message || 'Unknown crawl error';
+      errors.push({ url: nextUrl, error: msg });
       console.error('Crawl error for', nextUrl, error);
     }
   }
 
   await supabase.from('websites').update({ last_crawled_at: new Date().toISOString() }).eq('id', websiteId);
-  return results;
+  return { results, errors };
 }
 
 app.get('/api/health', (_req, res) => {
@@ -323,11 +506,47 @@ app.get('/api/health', (_req, res) => {
 app.get('/api/websites', async (req, res) => {
   try {
     const user = await getUserFromHeader(req);
-    let query = supabase.from('websites').select('id,domain,embed_code,created_at,last_crawled_at,user_id');
-    if (user) query = query.eq('user_id', user.id);
-    const { data, error } = await query;
+    if (!user) return res.status(401).json({ error: 'Unauthorized', reason: 'Sign in to view your chatbots.' });
+    await ensureAppUser(user);
+
+    const includeArchived = req.query.archived === 'true';
+    let { data, error } = await supabase
+      .from('websites')
+      .select('id,domain,embed_code,created_at,last_crawled_at,user_id,settings')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
+
+    if (error?.message?.includes('settings')) {
+      const fallback = await supabase
+        .from('websites')
+        .select('id,domain,embed_code,created_at,last_crawled_at,user_id')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+      data = fallback.data;
+      error = fallback.error;
+    }
+
     if (error) return res.status(500).json({ error: error.message });
-    res.json(data);
+    const filtered = (data || []).filter((w: any) => {
+      const archived = w.settings?.archived === true;
+      return includeArchived ? archived : !archived;
+    });
+
+    if (filtered.length === 0) {
+      const { count: orphanCount } = await supabase
+        .from('websites')
+        .select('*', { count: 'exact', head: true })
+        .is('user_id', null);
+      if (orphanCount && orphanCount > 0) {
+        return res.json({
+          websites: [],
+          hint: `Found ${orphanCount} chatbot(s) in the database with no owner (user_id is null). Run STEP 4 in SUPABASE_SCHEMA_SYNC_MIGRATION.sql to assign them to your account.`,
+          orphanCount,
+        });
+      }
+    }
+
+    res.json(filtered);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -342,7 +561,8 @@ app.post('/api/websites', async (req, res) => {
   const targetDomain = domain || new URL(startUrl).hostname;
   try {
     const user = await getUserFromHeader(req);
-    const website = await createOrFindWebsite(targetDomain, user?.id);
+    if (!user) return res.status(401).json({ error: 'Unauthorized', reason: 'Sign in to create a chatbot.' });
+    const website = await createOrFindWebsite(targetDomain, user);
     const origin = `${req.protocol}://${req.get('host')}`;
     const embedCode = createEmbedCode(origin, website.id);
     res.json({ website, embedCode });
@@ -352,18 +572,179 @@ app.post('/api/websites', async (req, res) => {
 });
 
 app.post('/api/crawl', async (req, res) => {
-  const { website_id, start_url } = req.body;
+  const { website_id, start_url, mode } = req.body;
   if (!website_id) {
     return res.status(400).json({ error: 'website_id is required' });
   }
-  // require that the authenticated user owns this website
   const ownership = await requireWebsiteOwnership(req, res, website_id);
   if (!ownership) return;
 
   const url = start_url || `https://${ownership.website.domain}`;
+  const crawlMode = mode === 'single' ? 'single' : 'full';
   try {
-    const results = await crawlWebsite(website_id, url, 100);
-    res.json({ crawled: results.length, pages: results });
+    const { results, errors } = await crawlWebsite(website_id, url, crawlMode === 'single' ? 1 : 100, crawlMode);
+    if (results.length === 0 && errors.length > 0) {
+      return res.status(422).json({
+        error: errors[0].error,
+        reason: errors[0].error,
+        errors,
+        crawled: 0,
+        pages: [],
+      });
+    }
+    res.json({
+      crawled: results.length,
+      pages: results,
+      errors: errors.length ? errors : undefined,
+      message:
+        results.length > 0
+          ? `Successfully crawled ${results.length} page(s).`
+          : 'No pages could be crawled.',
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message, reason: error.message });
+  }
+});
+
+// Duplicate chatbot (website)
+app.post('/api/websites/:id/duplicate', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const ownership = await requireWebsiteOwnership(req, res, id);
+    if (!ownership) return;
+
+    const { data: source, error: srcErr } = await supabase
+      .from('websites')
+      .select('*')
+      .eq('id', id)
+      .single();
+    if (srcErr || !source) return res.status(404).json({ error: 'Chatbot not found' });
+
+    const newDomain = `${source.domain.replace(/\s/g, '')}-copy-${Date.now().toString(36).slice(-4)}`;
+    const embedCode = `widget-${crypto.randomUUID().split('-')[0]}`;
+    const { data: created, error: createErr } = await supabase
+      .from('websites')
+      .insert([
+        {
+          domain: newDomain,
+          embed_code: embedCode,
+          user_id: ownership.user.id,
+          settings: source.settings || {},
+        },
+      ])
+      .select()
+      .single();
+    if (createErr) throw createErr;
+
+    const origin = `${req.protocol}://${req.get('host')}`;
+    res.json({ website: created, embedCode: createEmbedCode(origin, created.id) });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Archive / unarchive chatbot
+app.patch('/api/websites/:id', async (req, res) => {
+  const { id } = req.params;
+  const { archived, settings: settingsPatch } = req.body;
+  try {
+    const ownership = await requireWebsiteOwnership(req, res, id);
+    if (!ownership) return;
+
+    const { data: current } = await supabase.from('websites').select('settings').eq('id', id).single();
+    const settings = { ...(current?.settings || {}), ...(settingsPatch || {}) };
+    if (typeof archived === 'boolean') settings.archived = archived;
+
+    const { data, error } = await supabase.from('websites').update({ settings }).eq('id', id).select().single();
+    if (error) throw error;
+    res.json(data);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// AI configuration (stored in websites.settings)
+app.get('/api/websites/:id/ai-config', async (req, res) => {
+  const { id } = req.params;
+  const ownership = await requireWebsiteOwnership(req, res, id);
+  if (!ownership) return;
+  const { data } = await supabase.from('websites').select('settings,domain').eq('id', id).single();
+  const ai = data?.settings?.ai || {
+    personality: 'professional',
+    temperature: 0.7,
+    creativity: 'balanced',
+    responseLength: 'medium',
+    language: 'en',
+    tone: 'helpful',
+  };
+  res.json({ ...ai, websiteName: data?.domain });
+});
+
+app.put('/api/websites/:id/ai-config', async (req, res) => {
+  const { id } = req.params;
+  const ownership = await requireWebsiteOwnership(req, res, id);
+  if (!ownership) return;
+  try {
+    const { data: current } = await supabase.from('websites').select('settings').eq('id', id).single();
+    const settings = { ...(current?.settings || {}), ai: { ...(current?.settings?.ai || {}), ...req.body } };
+    const { data, error } = await supabase.from('websites').update({ settings }).eq('id', id).select().single();
+    if (error) throw error;
+    res.json(settings.ai);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Analytics for a chatbot
+app.get('/api/websites/:id/analytics', async (req, res) => {
+  const { id } = req.params;
+  const ownership = await requireWebsiteOwnership(req, res, id);
+  if (!ownership) return;
+
+  try {
+    const { data: sessions } = await supabase
+      .from('chat_sessions')
+      .select('id,created_at,visitor_id')
+      .eq('website_id', id);
+
+    const sessionIds = (sessions || []).map((s: any) => s.id);
+    let totalMessages = 0;
+    let userMessages = 0;
+    const dailyCounts: Record<string, number> = {};
+
+    if (sessionIds.length > 0) {
+      const { data: msgs } = await supabase
+        .from('messages')
+        .select('id,role,created_at')
+        .in('session_id', sessionIds);
+      totalMessages = msgs?.length || 0;
+      userMessages = (msgs || []).filter((m: any) => m.role === 'user').length;
+      (msgs || []).forEach((m: any) => {
+        const day = m.created_at?.slice(0, 10);
+        if (day) dailyCounts[day] = (dailyCounts[day] || 0) + 1;
+      });
+    }
+
+    const { count: pageCount } = await supabase
+      .from('website_pages')
+      .select('id', { count: 'exact', head: true })
+      .eq('website_id', id);
+
+    const uniqueVisitors = new Set((sessions || []).map((s: any) => s.visitor_id).filter(Boolean)).size;
+
+    const sortedDays = Object.keys(dailyCounts).sort();
+    const trend = sortedDays.slice(-14).map((d) => ({ date: d, messages: dailyCounts[d] }));
+
+    res.json({
+      totalConversations: sessions?.length || 0,
+      totalMessages,
+      userMessages,
+      activeUsers: uniqueVisitors,
+      knowledgePages: pageCount || 0,
+      resolutionRate: sessions?.length ? Math.round((userMessages / Math.max(totalMessages, 1)) * 100) : 0,
+      trend,
+      popularQuestions: [],
+    });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -376,7 +757,11 @@ app.get('/api/websites/:id/pages', async (req, res) => {
   const ownership = await requireWebsiteOwnership(req, res, id);
   if (!ownership) return;
 
-  const { data, error } = await supabase.from('website_pages').select('id,url,title,content,created_at').eq('website_id', id).order('created_at', { ascending: false });
+  const { data, error } = await supabase
+    .from('website_pages')
+    .select('id,url,title,content')
+    .eq('website_id', id)
+    .order('url', { ascending: true });
   if (error) {
     return res.status(500).json({ error: error.message });
   }
@@ -419,11 +804,10 @@ app.post('/api/websites/:website_id/pages/:page_id/recrawl', async (req, res) =>
     await supabase.from('embeddings').delete().eq('page_id', page_id);
 
     // Re-crawl the page
-    const response = await fetch(pageData.url);
-    if (!response.ok) throw new Error(`Failed to fetch ${pageData.url}`);
+    const fetched = await fetchPageForCrawl(pageData.url);
+    if (!fetched.ok) throw new Error(fetched.error);
     
-    const html = await response.text();
-    const { title, text } = extractTextAndTitle(html, pageData.url);
+    const { title, text } = extractTextAndTitle(fetched.html, pageData.url);
     
     // Update page content
     await supabase.from('website_pages').update({ title, content: text }).eq('id', page_id);
@@ -491,63 +875,29 @@ app.delete('/api/websites/:id', async (req, res) => {
 app.get('/api/websites/:id/widget-settings', async (req, res) => {
   const { id } = req.params;
   const { data, error } = await supabase.from('widget_settings').select('*').eq('website_id', id).single();
-  if (error && error.code !== 'PGRST116') { // PGRST116 = no rows
+  if (error && error.code !== 'PGRST116') {
     return res.status(500).json({ error: error.message });
   }
-  
-  // Return default settings if not found
-  if (!data) {
-    return res.json({
-      websiteId: id,
-      avatarUrl: null,
-      greetingMessage: 'Hello! How can I help you today?',
-      position: 'bottom-right',
-      theme: 'light',
-      primaryColor: '#2563eb',
-    });
-  }
-  
-  res.json(data);
+  res.json(mapWidgetSettingsToClient(data, id));
 });
 
 // Widget Settings: Update widget configuration
 app.put('/api/websites/:id/widget-settings', async (req, res) => {
   const { id } = req.params;
-  const { avatarUrl, greetingMessage, position, theme, primaryColor } = req.body;
-
   try {
     const ownership = await requireWebsiteOwnership(req, res, id);
     if (!ownership) return;
-    // Check if settings exist
     const { data: existing } = await supabase.from('widget_settings').select('id').eq('website_id', id).single();
-    
+    const row = widgetSettingsFromBody(id, req.body);
+
     if (existing) {
-      // Update existing
-      const { data, error } = await supabase.from('widget_settings').update({
-        avatarUrl,
-        greetingMessage,
-        position,
-        theme,
-        primaryColor,
-        updatedAt: new Date().toISOString(),
-      }).eq('website_id', id).select().single();
-      
+      const { data, error } = await supabase.from('widget_settings').update(row).eq('website_id', id).select().single();
       if (error) throw error;
-      res.json(data);
+      res.json(mapWidgetSettingsToClient(data, id));
     } else {
-      // Insert new
-      const { data, error } = await supabase.from('widget_settings').insert([{
-        websiteId: id,
-        avatarUrl,
-        greetingMessage,
-        position,
-        theme,
-        primaryColor,
-        updatedAt: new Date().toISOString(),
-      }]).select().single();
-      
+      const { data, error } = await supabase.from('widget_settings').insert([row]).select().single();
       if (error) throw error;
-      res.json(data);
+      res.json(mapWidgetSettingsToClient(data, id));
     }
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -719,41 +1069,59 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
-// Account: get current user/profile
+// Account: get current user/profile (public.users — not profiles)
 app.get('/api/me', async (req, res) => {
   try {
     const user = await getUserFromHeader(req);
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
-    const { data: profile, error } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
-    if (error) return res.status(500).json({ error: error.message });
-
-    res.json({ user, profile });
+    await ensureAppUser(user);
+    const appUser = await getAppUserProfile(user.id);
+    res.json({ user, profile: mapUserToProfile(appUser) });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// Account: update profile
+// Account: update profile (maps display_name -> users.name)
 app.put('/api/me', async (req, res) => {
   try {
     const user = await getUserFromHeader(req);
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
-    const { display_name, avatar_url } = req.body;
+    await ensureAppUser(user);
 
-    const { data: existing, error: existingErr } = await supabase.from('profiles').select('id').eq('id', user.id).maybeSingle();
-    if (existingErr) throw existingErr;
+    const displayName = req.body.display_name ?? req.body.name ?? null;
+    const avatarUrl = req.body.avatar_url ?? null;
 
-    if (existing) {
-      const { data, error } = await supabase.from('profiles').update({ display_name, avatar_url, updated_at: new Date().toISOString() }).eq('id', user.id).select().single();
-      if (error) throw error;
-      return res.json(data);
+    const updateRow: Record<string, unknown> = {
+      name: displayName,
+      email: user.email,
+    };
+    if (avatarUrl !== undefined && avatarUrl !== null) {
+      updateRow.avatar_url = avatarUrl;
     }
 
-    const { data, error } = await supabase.from('profiles').insert([{ id: user.id, email: user.email, display_name, avatar_url }]).select().single();
+    let { data, error } = await supabase
+      .from('users')
+      .update(updateRow)
+      .eq('id', user.id)
+      .select('id,email,name,avatar_url,created_at')
+      .single();
+
+    if (error?.message?.includes('avatar_url')) {
+      const fallback = await supabase
+        .from('users')
+        .update({ name: displayName, email: user.email })
+        .eq('id', user.id)
+        .select('id,email,name,created_at')
+        .single();
+      data = fallback.data ? { ...fallback.data, avatar_url: null } : null;
+      error = fallback.error;
+    }
+
     if (error) throw error;
-    res.json(data);
+    res.json(mapUserToProfile(data));
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -788,8 +1156,7 @@ app.delete('/api/me', async (req, res) => {
       }
     }
 
-    // delete profile row
-    await supabase.from('profiles').delete().eq('id', user.id);
+    await supabase.from('users').delete().eq('id', user.id);
 
     res.json({ success: true });
   } catch (error: any) {
@@ -797,11 +1164,15 @@ app.delete('/api/me', async (req, res) => {
   }
 });
 
-app.get('*', (_req, res) => {
-  res.sendFile(path.join(dashboardStatic, 'index.html'));
+// SPA fallback for dashboard deep links
+app.get('/dashboard.html', (_req, res) => {
+  res.sendFile(path.join(dashboardStatic, 'dashboard.html'));
 });
 
 const port = Number(process.env.PORT || 3000);
-app.listen(port, () => {
-  console.log(`API running on http://localhost:${port}`);
+const host = process.env.HOST || '0.0.0.0';
+app.listen(port, host, () => {
+  const publicUrl = process.env.PUBLIC_APP_URL || `http://localhost:${port}`;
+  console.log(`Wild Script API running on ${host}:${port}`);
+  console.log(`Public URL: ${publicUrl}`);
 });
