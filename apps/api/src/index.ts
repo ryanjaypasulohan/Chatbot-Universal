@@ -522,7 +522,7 @@ app.get('/api/websites', async (req, res) => {
         .select('id,domain,embed_code,created_at,last_crawled_at,user_id')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
-      data = fallback.data;
+      data = (fallback.data ?? []).map((row) => ({ ...row, settings: {} }));
       error = fallback.error;
     }
 
