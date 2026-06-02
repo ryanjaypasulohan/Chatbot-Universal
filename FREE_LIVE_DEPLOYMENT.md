@@ -115,7 +115,7 @@ Open `http://localhost:3000` → login → create chatbot → crawl → copy emb
 | Region | Closest to you |
 | Branch | `main` |
 | Runtime | **Node** |
-| Build Command | `corepack enable && pnpm install && pnpm run build` |
+| Build Command | `corepack enable && pnpm install --prod=false && pnpm run build` |
 | Start Command | `pnpm run start` |
 | Plan | **Free** |
 
@@ -231,7 +231,7 @@ Replace `YOUR_CHATBOT_UUID` from the dashboard.
 
 | Problem | Fix |
 | ------- | --- |
-| Build fails on Render | Check build logs; ensure `pnpm` runs (`corepack enable` in build command). |
+| Build fails on Render | Use build command with `pnpm install --prod=false` (installs TypeScript). Fix tsconfig if you see TS5101/TS5107 errors. |
 | 502 / timeout on first visit | Cold start; wait 60s and retry. |
 | Login loop | Supabase redirect URLs must match Render URL exactly. |
 | Chatbots empty | Run `SUPABASE_SCHEMA_SYNC_MIGRATION.sql` + assign `user_id` on websites. |
