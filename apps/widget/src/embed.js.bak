@@ -1,0 +1,361 @@
+const config = window.AI_CHATBOT_WIDGET_CONFIG || {};
+const scriptEl = document.currentScript || Array.from(document.getElementsByTagName('script')).find((tag) => tag.src && tag.src.includes('embed.js'));
+const websiteId = config.websiteId || scriptEl?.dataset?.websiteId;
+const apiUrl = config.apiUrl || scriptEl?.dataset?.apiUrl;
+
+if (!websiteId || !apiUrl) {
+  console.error('AI chatbot widget requires websiteId and apiUrl.');
+} else {
+  let widgetSettings = {
+    avatarUrl: null,
+    greetingMessage: 'Hello! How can I help you today?',
+    position: 'bottom-right',
+    theme: 'light',
+    primaryColor: '#2563eb',
+  };
+
+  // Fetch widget settings from API
+  fetch(`${apiUrl.replace('/api/chat', '')}/api/websites/${websiteId}/widget-settings`)
+    .then(res => res.json())
+    .then(settings => {
+      widgetSettings = settings;
+      initializeWidget(widgetSettings);
+    })
+    .catch(err => {
+      console.error('Failed to load widget settings:', err);
+      initializeWidget(widgetSettings);
+    });
+
+  function getPositionStyles(position) {
+    const isMobile = window.innerWidth < 768;
+    const mobilePosition = isMobile ? 'bottom-left' : position;
+    
+    const positions = {
+      'top-left': { top: '20px', left: '20px', bottom: 'auto', right: 'auto' },
+      'top-right': { top: '20px', right: '20px', bottom: 'auto', left: 'auto' },
+      'middle-left': { top: '50%', left: '20px', bottom: 'auto', right: 'auto', transform: 'translateY(-50%)' },
+      'middle-right': { top: '50%', right: '20px', bottom: 'auto', left: 'auto', transform: 'translateY(-50%)' },
+      'bottom-left': { bottom: '20px', left: '20px', top: 'auto', right: 'auto' },
+      'bottom-right': { bottom: '20px', right: '20px', top: 'auto', left: 'auto' },
+    };
+    return positions[mobilePosition] || positions['bottom-right'];
+  }
+
+  function parseMarkdown(text) {
+    // Simple markdown parser
+    return text
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.*?)\*/g, '<em>$1</em>')
+      .replace(/\n- /g, '<br>• ')
+      .replace(/\n\d+\. /g, '<br>')
+      .replace(/\n/g, '<br>');
+  }
+
+  function detectAndRenderComponents(text) {
+    let html = parseMarkdown(text);
+    
+    // Detect URLs
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    html = html.replace(urlRegex, (url) => {
+      return `<a href="${url}" target="_blank" class="cta-link">🔗 ${new URL(url).hostname}</a>`;
+    });
+    
+    // Detect email addresses
+    const emailRegex = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/gi;
+    html = html.replace(emailRegex, (email) => {
+      return `<a href="mailto:${email}" class="cta-link">📧 ${email}</a>`;
+    });
+    
+    // Detect phone numbers (simple format)
+    const phoneRegex = /(\+?1?\s?[-.\s]?\(?[2-9]\d{2}\)?[-.\s]?\d{3}[-.\s]?\d{4})/g;
+    html = html.replace(phoneRegex, (phone) => {
+      return `<a href="tel:${phone.replace(/\D/g, '')}" class="cta-link">☎️ ${phone}</a>`;
+    });
+    
+    return html;
+  }
+
+  function initializeWidget(settings) {
+    const style = document.createElement('style');
+    style.textContent = `
+      .ai-chatbot-widget {
+        position: fixed;
+        ${Object.entries(getPositionStyles(settings.position)).map(([k, v]) => {
+          if (k === 'transform') return `${k}: ${v};`;
+          return `${k}: ${v};`;
+        }).join(' ')}
+        width: 320px;
+        max-width: calc(100vw - 32px);
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+        z-index: 999999;
+      }
+
+      @media (max-width: 768px) {
+        .ai-chatbot-widget {
+          width: 100%;
+          max-width: calc(100vw - 16px);
+          bottom: 10px !important;
+          left: 8px !important;
+          right: 8px !important;
+          top: auto !important;
+        }
+      }
+
+      .ai-chatbot-widget button { 
+        border: none; 
+        background: ${settings.primaryColor}; 
+        color: white; 
+        cursor: pointer; 
+        border-radius: 999px; 
+        padding: 10px 16px; 
+        font-size: 1rem;
+        transition: transform 0.2s ease;
+      }
+
+      .ai-chatbot-widget button:hover { 
+        transform: scale(1.05);
+      }
+
+      .ai-chatbot-widget .panel { 
+        background: white; 
+        border-radius: 20px; 
+        box-shadow: 0 20px 60px rgba(15, 23, 42, 0.18); 
+        overflow: hidden; 
+        display: flex; 
+        flex-direction: column; 
+        height: 520px; 
+      }
+
+      @media (max-width: 768px) {
+        .ai-chatbot-widget .panel {
+          height: 60vh;
+          max-height: 600px;
+        }
+      }
+
+      .ai-chatbot-widget .header { 
+        padding: 16px; 
+        background: ${settings.primaryColor}; 
+        color: white; 
+        display: flex; 
+        justify-content: space-between; 
+        align-items: center;
+        gap: 12px;
+      }
+
+      .ai-chatbot-widget .avatar {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 20px;
+        flex-shrink: 0;
+      }
+
+      .ai-chatbot-widget .avatar img {
+        width: 100%;
+        height: 100%;
+        border-radius: 50%;
+        object-fit: cover;
+      }
+
+      .ai-chatbot-widget .header-title {
+        flex: 1;
+      }
+
+      .ai-chatbot-widget .body { 
+        padding: 16px; 
+        flex: 1; 
+        overflow-y: auto; 
+        display: flex; 
+        flex-direction: column; 
+        gap: 12px; 
+        background: #fafbfc;
+      }
+
+      .ai-chatbot-widget .message { 
+        padding: 12px 14px; 
+        border-radius: 16px; 
+        max-width: 90%; 
+        word-wrap: break-word;
+        line-height: 1.4;
+      }
+
+      .ai-chatbot-widget .message.user { 
+        background: ${settings.primaryColor}; 
+        align-self: flex-end; 
+        color: white;
+      }
+
+      .ai-chatbot-widget .message.bot { 
+        background: white; 
+        align-self: flex-start; 
+        color: #1f2937;
+        border: 1px solid #e5e7eb;
+      }
+
+      .ai-chatbot-widget .cta-link {
+        display: inline-block;
+        background: ${settings.primaryColor};
+        color: white;
+        padding: 8px 12px;
+        border-radius: 8px;
+        text-decoration: none;
+        margin: 4px 4px 4px 0;
+        font-weight: bold;
+        transition: opacity 0.2s;
+      }
+
+      .ai-chatbot-widget .cta-link:hover {
+        opacity: 0.9;
+      }
+
+      .ai-chatbot-widget .input-row { 
+        display: flex; 
+        gap: 8px; 
+        padding: 16px; 
+        border-top: 1px solid #e5e7eb; 
+        background: white;
+      }
+
+      .ai-chatbot-widget .input-row input { 
+        flex: 1; 
+        padding: 12px 14px; 
+        border-radius: 14px; 
+        border: 1px solid #cbd5e1; 
+        margin: 0;
+        font-size: 0.95rem;
+      }
+
+      .ai-chatbot-widget .input-row button { 
+        padding: 12px 18px; 
+        margin: 0;
+      }
+
+      @media (max-width: 768px) {
+        .ai-chatbot-widget .input-row {
+          flex-wrap: wrap;
+        }
+      }
+
+      .ai-chatbot-widget .loading { 
+        display: inline-block; 
+        width: 8px; 
+        height: 8px; 
+        background: currentColor; 
+        border-radius: 50%; 
+        margin: 0 2px; 
+        animation: pulse 1.4s infinite;
+      }
+
+      @keyframes pulse {
+        0%, 100% { opacity: 0.3; }
+        50% { opacity: 1; }
+      }
+    `;
+    document.head.appendChild(style);
+
+    const widget = document.createElement('div');
+    widget.className = 'ai-chatbot-widget';
+    widget.innerHTML = `
+      <button id="ai-chatbot-open">💬 Chat</button>
+      <div class="panel" id="ai-chatbot-panel" style="display:none;">
+        <div class="header">
+          <div class="avatar" id="avatar-container">
+            ${settings.avatarUrl 
+              ? `<img src="${settings.avatarUrl}" alt="Bot Avatar" />` 
+              : '🤖'
+            }
+          </div>
+          <div class="header-title">Website Assistant</div>
+          <button id="ai-chatbot-close" style="width: auto; padding: 8px 12px; border-radius: 50%; font-size: 1.2rem;">×</button>
+        </div>
+        <div class="body" id="ai-chatbot-body"></div>
+        <div class="input-row">
+          <input id="ai-chatbot-input" placeholder="Ask a question..." />
+          <button id="ai-chatbot-send">Send</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(widget);
+
+    const openButton = widget.querySelector('#ai-chatbot-open');
+    const closeButton = widget.querySelector('#ai-chatbot-close');
+    const panel = widget.querySelector('#ai-chatbot-panel');
+    const body = widget.querySelector('#ai-chatbot-body');
+    const input = widget.querySelector('#ai-chatbot-input');
+    const sendButton = widget.querySelector('#ai-chatbot-send');
+
+    // Show greeting message
+    function addMessage(text, role) {
+      const message = document.createElement('div');
+      message.className = `message ${role}`;
+      message.innerHTML = detectAndRenderComponents(text);
+      body.appendChild(message);
+      body.scrollTop = body.scrollHeight;
+    }
+
+    // Show initial greeting
+    addMessage(settings.greetingMessage, 'bot');
+
+    let sessionId = null;
+
+    async function sendMessage() {
+      const message = input.value.trim();
+      if (!message) return;
+      addMessage(message, 'user');
+      input.value = '';
+      addMessage('⏳ Thinking...', 'bot');
+
+      try {
+        const response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ website_id: websiteId, message, session_id: sessionId }),
+        });
+        const data = await response.json();
+        
+        if (!sessionId && data.sessionId) {
+          sessionId = data.sessionId;
+        }
+
+        const botText = data.answer || data.error || 'Sorry, I could not answer that.';
+        const lastBot = body.querySelector('.message.bot:last-child');
+        if (lastBot) {
+          lastBot.innerHTML = detectAndRenderComponents(botText);
+        }
+      } catch (error) {
+        const lastBot = body.querySelector('.message.bot:last-child');
+        if (lastBot) lastBot.textContent = 'Unable to reach the chat server.';
+        console.error(error);
+      }
+    }
+
+    openButton.addEventListener('click', () => {
+      panel.style.display = 'flex';
+      openButton.style.display = 'none';
+      input.focus();
+    });
+
+    closeButton.addEventListener('click', () => {
+      panel.style.display = 'none';
+      openButton.style.display = 'inline-flex';
+    });
+
+    sendButton.addEventListener('click', sendMessage);
+    input.addEventListener('keypress', (event) => {
+      if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        sendMessage();
+      }
+    });
+
+    // Handle window resize for responsive positioning
+    window.addEventListener('resize', () => {
+      Object.assign(widget.style, getPositionStyles(settings.position));
+    });
+  }
+}

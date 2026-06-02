@@ -5,50 +5,238 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AI Chatbot Dashboard</title>
   <style>
+    * { box-sizing: border-box; }
     body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f4f7fb; color: #1f2937; }
     h1 { margin-bottom: 0.5rem; }
     .card { background: #fff; border-radius: 16px; padding: 20px; margin-bottom: 20px; box-shadow: 0 12px 40px rgba(15, 23, 42, 0.08); }
-    input, button, textarea { width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px solid #d1d5db; margin-top: 8px; font-size: 1rem; }
+    input, button, textarea, select { width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px solid #d1d5db; margin-top: 8px; font-size: 1rem; font-family: inherit; }
     button { background: #2563eb; color: white; border: none; cursor: pointer; }
     button:hover { background: #1d4ed8; }
-    .small { width: auto; display: inline-block; margin-right: 8px; }
-    .website { margin-bottom: 12px; }
-    pre { white-space: pre-wrap; background: #efefff; padding: 12px; border-radius: 12px; overflow-x: auto; }
+    button.secondary { background: #6b7280; }
+    button.secondary:hover { background: #4b5563; }
+    button.danger { background: #ef4444; }
+    button.danger:hover { background: #dc2626; }
+    .small { width: auto; display: inline-block; margin-right: 8px; margin-top: 0; }
+    .website { margin-bottom: 12px; padding: 12px; border: 1px solid #e5e7eb; border-radius: 8px; }
+    pre { white-space: pre-wrap; background: #efefff; padding: 12px; border-radius: 12px; overflow-x: auto; margin: 8px 0; }
+    label { display: block; margin-top: 12px; font-weight: bold; }
+    .tabs { display: flex; gap: 8px; margin-bottom: 20px; border-bottom: 2px solid #e5e7eb; }
+    .tab-btn { background: none; border: none; padding: 12px 16px; cursor: pointer; border-bottom: 3px solid transparent; color: #6b7280; font-weight: bold; }
+    .tab-btn.active { color: #2563eb; border-bottom-color: #2563eb; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+    .grid.full { grid-template-columns: 1fr; }
+    .position-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+    .position-btn { padding: 16px; border: 2px solid #d1d5db; background: white; cursor: pointer; border-radius: 8px; text-align: center; font-weight: bold; }
+    .position-btn.selected { border-color: #2563eb; background: #dbeafe; }
+    .message-item { background: #f8fafc; padding: 12px; border-radius: 8px; margin-bottom: 8px; border-left: 4px solid #2563eb; }
+    .message-item.user { background: #e0f2fe; border-left-color: #0ea5e9; }
+    .message-item.bot { background: #f8fafc; border-left-color: #2563eb; }
+    .timestamp { font-size: 0.875rem; color: #6b7280; }
+    .conversation-item { padding: 12px; border: 1px solid #e5e7eb; border-radius: 8px; margin-bottom: 8px; cursor: pointer; }
+    .conversation-item:hover { background: #f3f4f6; }
+    .chat-container { max-height: 400px; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; margin-bottom: 12px; background: #fafbfc; }
+    .search-row { display: flex; gap: 8px; margin-top: 12px; }
+    .search-row input { flex: 1; }
+    .search-row button { width: auto; }
   </style>
 </head>
 <body>
   <h1>AI Chatbot Dashboard</h1>
-  <div class="card">
-    <h2>Add a website</h2>
-    <label>Domain</label>
-    <input id="domain" placeholder="example.com" />
-    <label>Start URL (optional)</label>
-    <input id="startUrl" placeholder="https://example.com" />
-    <button id="createWebsite">Create website</button>
-    <div id="createResult"></div>
+  <div id="authControls" style="position: absolute; right: 24px; top: 20px;"></div>
+  <script>
+    // Capture Supabase OAuth redirect token, validate session, redirect if unauthenticated
+    (async function(){
+      try {
+        const hash = window.location.hash || window.location.search || '';
+        if (hash) {
+          const params = new URLSearchParams(hash.replace(/^#/, '').replace(/^\?/, ''));
+          const accessToken = params.get('access_token');
+          if (accessToken) {
+            localStorage.setItem('sb_access_token', accessToken);
+            // remove token from URL
+            history.replaceState(null, '', window.location.pathname + window.location.search);
+          }
+        }
+
+        const token = localStorage.getItem('sb_access_token');
+        // If no token, redirect to login
+        if (!token) {
+          window.location.href = '/login.html';
+          return;
+        }
+
+        // Validate token server-side; if invalid, clear and redirect
+        try {
+          const resp = await fetch('/api/me', { headers: { 'Authorization': 'Bearer ' + token } });
+          if (!resp.ok) {
+            localStorage.removeItem('sb_access_token');
+            window.location.href = '/login.html';
+            return;
+          }
+        } catch (err) {
+          console.error('Auth validation failed', err);
+          // If the API is unreachable, let the page load so errors can surface
+        }
+      } catch (e) { console.error(e); }
+    })();
+  </script>
+  
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('websites')">Websites</button>
+    <button class="tab-btn" onclick="switchTab('content')">Content Management</button>
+    <button class="tab-btn" onclick="switchTab('widget')">Widget Settings</button>
+    <button class="tab-btn" onclick="switchTab('conversations')">Chat History</button>
+    <button class="tab-btn" onclick="switchTab('account')">Account</button>
   </div>
 
-  <div class="card">
-    <h2>Crawl website</h2>
-    <label>Website ID</label>
-    <input id="crawlWebsiteId" placeholder="Website ID" />
-    <label>Start URL (optional)</label>
-    <input id="crawlUrl" placeholder="https://example.com" />
-    <button id="startCrawl">Crawl website content</button>
-    <div id="crawlResult"></div>
+  <!-- WEBSITES TAB -->
+  <div id="websites" class="tab-content active">
+    <div class="card">
+      <h2>Add a website</h2>
+      <label>Domain</label>
+      <input id="domain" placeholder="example.com" />
+      <label>Start URL (optional)</label>
+      <input id="startUrl" placeholder="https://example.com" />
+      <button id="createWebsite">Create website</button>
+      <div id="createResult"></div>
+    </div>
+
+    <div class="card">
+      <h2>Crawl website</h2>
+      <label>Website ID</label>
+      <input id="crawlWebsiteId" placeholder="Website ID" />
+      <label>Start URL (optional)</label>
+      <input id="crawlUrl" placeholder="https://example.com" />
+      <button id="startCrawl">Crawl website content</button>
+      <div id="crawlResult"></div>
+    </div>
+
+    <div class="card">
+      <h2>Your websites</h2>
+      <div id="websiteList">Loading websites...</div>
+    </div>
+
+    <div class="card">
+      <h2>Embed snippet</h2>
+      <p>After creating a website, copy this snippet into your site and update the website ID and API URL.</p>
+      <pre id="embedSnippet">Use the dashboard to generate a website first.</pre>
+      <div style="display:flex;gap:8px;margin-top:8px;align-items:center;">
+        <button id="copyEmbedBtn" class="small">Copy Script</button>
+        <a href="/embed-instructions.html" id="viewEmbedInstructions" class="small" style="text-decoration:none;display:inline-block;padding:8px 12px;border-radius:8px;background:#fff;border:1px solid #d1d5db;color:#111">View Instructions</a>
+        <div id="embedMsg" style="margin-left:8px;color:#10b981"></div>
+      </div>
+    </div>
   </div>
 
-  <div class="card">
-    <h2>Websites</h2>
-    <div id="websiteList">Loading websites...</div>
+  <!-- ACCOUNT TAB -->
+  <div id="account" class="tab-content">
+    <div class="card">
+      <h2>Account</h2>
+      <div id="accountInfo">Loading account...</div>
+      <label>Display name</label>
+      <input id="displayName" placeholder="Display name" />
+      <label>Avatar URL</label>
+      <input id="accountAvatar" placeholder="https://example.com/avatar.png" />
+      <button id="saveProfile" onclick="saveProfile()">Update Profile</button>
+      <button id="deleteAccount" class="danger" onclick="deleteAccount()">Delete Account (data only)</button>
+      <div id="accountResult"></div>
+    </div>
   </div>
 
-  <div class="card">
-    <h2>Embed snippet</h2>
-    <p>After creating a website, copy this snippet into your site and update the website ID and API URL.</p>
-    <pre id="embedSnippet">Use the dashboard to generate a website first.</pre>
+  <!-- CONTENT MANAGEMENT TAB -->
+  <div id="content" class="tab-content">
+    <div class="card">
+      <h2>Manage Crawled Content</h2>
+      <label>Select Website</label>
+      <select id="contentWebsiteId" onchange="loadWebsitePages()">
+        <option value="">Choose a website...</option>
+      </select>
+      <button id="refreshPages" class="secondary small" onclick="loadWebsitePages()">Refresh</button>
+      
+      <div id="contentResult"></div>
+      <div id="pagesList"></div>
+    </div>
+  </div>
+
+  <!-- WIDGET SETTINGS TAB -->
+  <div id="widget" class="tab-content">
+    <div class="card">
+      <h2>Widget Settings</h2>
+      <label>Select Website</label>
+      <select id="widgetWebsiteId" onchange="loadWidgetSettings()">
+        <option value="">Choose a website...</option>
+      </select>
+
+      <label>Custom Avatar URL</label>
+      <input id="avatarUrl" placeholder="https://example.com/avatar.png" />
+
+      <label>Greeting Message</label>
+      <textarea id="greetingMessage" placeholder="Hello! How can I help you today?" style="height: 80px;"></textarea>
+
+      <label>Widget Position</label>
+      <div class="position-grid">
+        <button class="position-btn" onclick="selectPosition('top-left')">↖ Top-Left</button>
+        <button class="position-btn" onclick="selectPosition('top-right')">↗ Top-Right</button>
+        <button class="position-btn" onclick="selectPosition('middle-left')">← Middle-Left</button>
+        <button class="position-btn" onclick="selectPosition('middle-right')">→ Middle-Right</button>
+        <button class="position-btn" onclick="selectPosition('bottom-left')">↙ Bottom-Left</button>
+        <button class="position-btn selected" onclick="selectPosition('bottom-right')">↘ Bottom-Right</button>
+      </div>
+      <input id="selectedPosition" type="hidden" value="bottom-right" />
+
+      <label>Theme</label>
+      <select id="theme">
+        <option value="light">Light</option>
+        <option value="dark">Dark</option>
+      </select>
+
+      <label>Primary Color</label>
+      <input id="primaryColor" type="color" value="#2563eb" />
+
+      <button id="saveWidgetSettings" onclick="saveWidgetSettings()">Save Widget Settings</button>
+      <div id="widgetResult"></div>
+    </div>
+  </div>
+
+  <!-- CONVERSATIONS TAB -->
+  <div id="conversations" class="tab-content">
+    <div class="card">
+      <h2>Chat History & Analytics</h2>
+      <label>Select Website</label>
+      <select id="convWebsiteId" onchange="loadConversations()">
+        <option value="">Choose a website...</option>
+      </select>
+
+      <label>Search by Date Range (optional)</label>
+      <div class="search-row">
+        <input id="startDate" type="date" />
+        <input id="endDate" type="date" />
+        <button class="secondary" style="width: auto;" onclick="searchConversations()">Search</button>
+        <button class="secondary small" onclick="loadConversations()">Clear</button>
+      </div>
+
+      <h3>Conversations</h3>
+      <div id="conversationsList" class="chat-container">Loading conversations...</div>
+
+      <h3>Messages for Selected Conversation</h3>
+      <div id="messagesList" class="chat-container">Select a conversation to view messages</div>
+    </div>
   </div>
 
   <script src="dashboard.js"></script>
+  <script>
+    (function(){
+      const authEl = document.getElementById('authControls');
+      const token = localStorage.getItem('sb_access_token');
+      if (!authEl) return;
+      if (token) {
+        authEl.innerHTML = `<button onclick="localStorage.removeItem('sb_access_token'); location.reload();" style="padding:8px 12px;border-radius:8px;border:none;background:#ef4444;color:#fff">Sign out</button>`;
+      } else {
+        authEl.innerHTML = `<a href="/login.html" style="padding:8px 12px;border-radius:8px;background:#fff;border:1px solid #d1d5db;color:#111;text-decoration:none">Sign in</a>`;
+      }
+    })();
+  </script>
 </body>
 </html>

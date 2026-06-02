@@ -8,6 +8,18 @@ export const users = pgTable('users', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+// Widget settings
+export const widgetSettings = pgTable('widget_settings', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  websiteId: uuid('website_id').references(() => websites.id).notNull(),
+  avatarUrl: text('avatar_url'), // custom avatar/icon URL
+  greetingMessage: text('greeting_message'), // custom greeting
+  position: text('position').$type<'bottom-right' | 'bottom-left' | 'middle-left' | 'middle-right' | 'top-left' | 'top-right'>().default('bottom-right'), // widget position
+  theme: text('theme').$type<'light' | 'dark'>().default('light'),
+  primaryColor: text('primary_color').default('#2563eb'),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
 // Websites table
 export const websites = pgTable('websites', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -17,7 +29,7 @@ export const websites = pgTable('websites', {
   settings: jsonb('settings').$type<{
     theme?: 'light' | 'dark';
     primaryColor?: string;
-    position?: 'bottom-right' | 'bottom-left';
+    position?: 'bottom-right' | 'bottom-left' | 'middle-left' | 'middle-right' | 'top-left' | 'top-right';
   }>(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   lastCrawledAt: timestamp('last_crawled_at'),
@@ -71,4 +83,14 @@ export const usageLogs = pgTable('usage_logs', {
   messageCount: integer('message_count').default(1),
   tokensUsed: integer('tokens_used').default(0),
   createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// Page crawl metadata (for tracking, re-crawl, deletion)
+export const pageCrawlMetadata = pgTable('page_crawl_metadata', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  pageId: uuid('page_id').references(() => websitePages.id).notNull(),
+  isDeleted: integer('is_deleted').default(0), // soft delete
+  lastRecrawlAt: timestamp('last_recrawl_at'),
+  crawlCount: integer('crawl_count').default(1),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

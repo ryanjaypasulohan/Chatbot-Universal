@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
+import fs from 'fs/promises';
 import { fileURLToPath } from 'url';
 import { createClient } from '@supabase/supabase-js';
 import OpenAI from 'openai';
@@ -15,6 +16,15 @@ const app = express();
 app.use(cors({ origin: true }));
 app.use(express.json({ limit: '1mb' }));
 
+// Handle invalid JSON payloads gracefully (avoid server crash)
+app.use((err: any, _req: any, res: any, next: any) => {
+  if (err && err.type === 'entity.parse.failed') {
+    console.error('Invalid JSON payload:', err.message);
+    return res.status(400).json({ error: 'Invalid JSON payload' });
+  }
+  next(err);
+});
+
 const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
 const groq = new OpenAI({ apiKey: env.GROQ_API_KEY, baseURL: 'https://api.groq.com/openai/v1' });
 
@@ -25,6 +35,52 @@ const widgetStatic = path.resolve(__dirname, '../../widget/src');
 
 app.use('/widget', express.static(widgetStatic));
 app.use(express.static(dashboardStatic));
+
+// Serve a small JS file containing client config (SUPABASE_* keys)
+app.get('/config.js', (req, res) => {
+  const supabaseUrl = JSON.stringify(env.SUPABASE_URL || '');
+  const supabaseAnon = JSON.stringify(env.SUPABASE_ANON_KEY || '');
+  const js = `window.SUPABASE_URL=${supabaseUrl};window.SUPABASE_ANON_KEY=${supabaseAnon};`;
+  res.setHeader('Content-Type', 'application/javascript');
+  res.send(js);
+});
+
+async function getUserFromHeader(req: any) {
+  const auth = (req.headers?.authorization || req.headers?.Authorization || '').toString();
+  const token = auth.split(' ')[1];
+  if (!token) return null;
+  try {
+    const { data, error } = await supabase.auth.getUser(token);
+    if (error || !data?.user) {
+      return null;
+    }
+    return data.user;
+  } catch (err) {
+    console.error('Error verifying token', err);
+    return null;
+  }
+}
+
+async function requireWebsiteOwnership(req: any, res: any, websiteId: string) {
+  const user = await getUserFromHeader(req);
+  if (!user) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return null;
+  }
+
+  const { data: website, error } = await supabase.from('websites').select('id,user_id,domain').eq('id', websiteId).single();
+  if (error || !website) {
+    res.status(404).json({ error: error?.message || 'Website not found' });
+    return null;
+  }
+
+  if (website.user_id !== user.id) {
+    res.status(403).json({ error: 'Forbidden' });
+    return null;
+  }
+
+  return { user, website };
+}
 
 function createEmbedCode(host: string, websiteId: string) {
   return `<script>
@@ -132,7 +188,42 @@ function extractSameDomainLinks(html: string, baseUrl: string) {
   return Array.from(links);
 }
 
-async function createOrFindWebsite(domain: string) {
+// Basic robots.txt check for User-agent: * Disallow rules
+async function isAllowedByRobots(url: string) {
+  try {
+    const u = new URL(url);
+    const robotsUrl = `${u.origin}/robots.txt`;
+    const res = await fetch(robotsUrl, { headers: { 'User-Agent': 'WildScriptBot/1.0 (+https://wildscript.example)', 'Accept': 'text/plain' } });
+    if (!res.ok) return { allowed: true };
+    const txt = await res.text();
+    const lines = txt.split(/\r?\n/).map(l => l.trim());
+    let applies = false;
+    const disallows: string[] = [];
+    for (const line of lines) {
+      if (!line || line.startsWith('#')) continue;
+      const idx = line.indexOf(':');
+      if (idx === -1) continue;
+      const key = line.slice(0, idx).trim().toLowerCase();
+      const val = line.slice(idx + 1).trim();
+      if (key === 'user-agent') {
+        applies = (val === '*' || val.toLowerCase() === '*');
+      } else if (key === 'disallow' && applies) {
+        disallows.push(val);
+      }
+    }
+    if (disallows.includes('/')) return { allowed: false, reason: 'robots.txt disallows all crawlers' };
+    const path = u.pathname;
+    for (const d of disallows) {
+      if (!d) continue; // empty disallow means allow
+      if (path.startsWith(d)) return { allowed: false, reason: `robots.txt disallows path ${d}` };
+    }
+    return { allowed: true };
+  } catch (err) {
+    return { allowed: true };
+  }
+}
+
+async function createOrFindWebsite(domain: string, userId?: string) {
   const normalized = domain.trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
   const existing = await supabase.from('websites').select('*').eq('domain', normalized).maybeSingle();
   if (existing.error) {
@@ -143,7 +234,9 @@ async function createOrFindWebsite(domain: string) {
   }
 
   const embedCode = `widget-${crypto.randomUUID().split('-')[0]}`;
-  const { data, error } = await supabase.from('websites').insert([{ domain: normalized, embed_code: embedCode }]).select().single();
+  const insertRow: any = { domain: normalized, embed_code: embedCode };
+  if (userId) insertRow.user_id = userId;
+  const { data, error } = await supabase.from('websites').insert([insertRow]).select().single();
   if (error) {
     throw error;
   }
@@ -185,7 +278,7 @@ async function storePageAndEmbeddings(websiteId: string, url: string, title: str
   return pageChunks.length;
 }
 
-async function crawlWebsite(websiteId: string, startUrl: string, maxPages = 5) {
+async function crawlWebsite(websiteId: string, startUrl: string, maxPages = 100) {
   const visited = new Set<string>();
   const queue = [startUrl];
   const baseOrigin = new URL(startUrl).origin;
@@ -197,7 +290,12 @@ async function crawlWebsite(websiteId: string, startUrl: string, maxPages = 5) {
     visited.add(nextUrl);
 
     try {
-      const response = await fetch(nextUrl);
+      const robotsCheck = await isAllowedByRobots(nextUrl);
+      if (!robotsCheck.allowed) {
+        console.warn('Robots blocked:', nextUrl, robotsCheck.reason);
+        continue;
+      }
+        const response = await fetch(nextUrl, { headers: { 'User-Agent': 'WildScriptBot/1.0 (+https://wildscript.example)', 'Accept': 'text/html,application/xhtml+xml,application/xml' } });
       if (!response.ok) continue;
       const html = await response.text();
       const { title, text } = extractTextAndTitle(html, nextUrl);
@@ -222,21 +320,17 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true, message: 'API running' });
 });
 
-app.get('/api/websites', async (_req, res) => {
-  const { data, error } = await supabase.from('websites').select('id,domain,embed_code,created_at,last_crawled_at');
-  if (error) {
-    return res.status(500).json({ error: error.message });
+app.get('/api/websites', async (req, res) => {
+  try {
+    const user = await getUserFromHeader(req);
+    let query = supabase.from('websites').select('id,domain,embed_code,created_at,last_crawled_at,user_id');
+    if (user) query = query.eq('user_id', user.id);
+    const { data, error } = await query;
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
-  res.json(data);
-});
-
-app.get('/api/websites/:id/pages', async (req, res) => {
-  const { id } = req.params;
-  const { data, error } = await supabase.from('website_pages').select('id,url,title,content').eq('website_id', id);
-  if (error) {
-    return res.status(500).json({ error: error.message });
-  }
-  res.json(data);
 });
 
 app.post('/api/websites', async (req, res) => {
@@ -247,7 +341,8 @@ app.post('/api/websites', async (req, res) => {
 
   const targetDomain = domain || new URL(startUrl).hostname;
   try {
-    const website = await createOrFindWebsite(targetDomain);
+    const user = await getUserFromHeader(req);
+    const website = await createOrFindWebsite(targetDomain, user?.id);
     const origin = `${req.protocol}://${req.get('host')}`;
     const embedCode = createEmbedCode(origin, website.id);
     res.json({ website, embedCode });
@@ -261,28 +356,327 @@ app.post('/api/crawl', async (req, res) => {
   if (!website_id) {
     return res.status(400).json({ error: 'website_id is required' });
   }
+  // require that the authenticated user owns this website
+  const ownership = await requireWebsiteOwnership(req, res, website_id);
+  if (!ownership) return;
 
-  const { data: website, error: websiteError } = await supabase.from('websites').select('id,domain').eq('id', website_id).single();
-  if (websiteError || !website) {
-    return res.status(400).json({ error: websiteError?.message || 'Website not found' });
-  }
-
-  const url = start_url || `https://${website.domain}`;
+  const url = start_url || `https://${ownership.website.domain}`;
   try {
-    const results = await crawlWebsite(website_id, url, 5);
+    const results = await crawlWebsite(website_id, url, 100);
     res.json({ crawled: results.length, pages: results });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
 
+// Content Management: List all crawled pages
+app.get('/api/websites/:id/pages', async (req, res) => {
+  const { id } = req.params;
+  // only allow owners to list pages
+  const ownership = await requireWebsiteOwnership(req, res, id);
+  if (!ownership) return;
+
+  const { data, error } = await supabase.from('website_pages').select('id,url,title,content,created_at').eq('website_id', id).order('created_at', { ascending: false });
+  if (error) {
+    return res.status(500).json({ error: error.message });
+  }
+  res.json(data);
+});
+
+// Content Management: Delete a specific page
+app.delete('/api/websites/:website_id/pages/:page_id', async (req, res) => {
+  const { website_id, page_id } = req.params;
+  
+  try {
+    // ensure owner
+    const ownership = await requireWebsiteOwnership(req, res, website_id);
+    if (!ownership) return;
+    // Soft delete from website_pages
+    const { error } = await supabase.from('website_pages').update({ content: '' }).eq('id', page_id).eq('website_id', website_id);
+    if (error) throw error;
+    
+    // Also delete embeddings for this page
+    await supabase.from('embeddings').delete().eq('page_id', page_id);
+    
+    res.json({ success: true, message: 'Page deleted successfully' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Content Management: Re-crawl a specific page
+app.post('/api/websites/:website_id/pages/:page_id/recrawl', async (req, res) => {
+  const { website_id, page_id } = req.params;
+  
+  try {
+    const ownership = await requireWebsiteOwnership(req, res, website_id);
+    if (!ownership) return;
+    // Get the page URL
+    const { data: pageData, error: pageError } = await supabase.from('website_pages').select('url').eq('id', page_id).eq('website_id', website_id).single();
+    if (pageError || !pageData) throw pageError || new Error('Page not found');
+
+    // Delete old embeddings
+    await supabase.from('embeddings').delete().eq('page_id', page_id);
+
+    // Re-crawl the page
+    const response = await fetch(pageData.url);
+    if (!response.ok) throw new Error(`Failed to fetch ${pageData.url}`);
+    
+    const html = await response.text();
+    const { title, text } = extractTextAndTitle(html, pageData.url);
+    
+    // Update page content
+    await supabase.from('website_pages').update({ title, content: text }).eq('id', page_id);
+
+    // Re-generate embeddings
+    const pageChunks = splitText(text);
+    const chunkRows = [];
+    for (let index = 0; index < pageChunks.length; index += 1) {
+      const chunk = pageChunks[index];
+      const embedding = await generateEmbedding(chunk);
+      chunkRows.push({
+        page_id: page_id,
+        chunk_index: index,
+        content: chunk,
+        embedding,
+      });
+    }
+    await supabase.from('embeddings').insert(chunkRows);
+
+    res.json({ success: true, chunks: pageChunks.length });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete a website and cascade related data (requires auth)
+app.delete('/api/websites/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const user = await getUserFromHeader(req);
+    if (!user) return res.status(401).json({ error: 'Unauthorized' });
+
+    // Ensure website belongs to user
+    const { data: website, error: websiteError } = await supabase.from('websites').select('id,user_id').eq('id', id).single();
+    if (websiteError || !website) return res.status(404).json({ error: websiteError?.message || 'Website not found' });
+    if (website.user_id !== user.id) return res.status(403).json({ error: 'Forbidden' });
+
+    // Delete related chat sessions & messages
+    const { data: sessions } = await supabase.from('chat_sessions').select('id').eq('website_id', id);
+    if (sessions && sessions.length > 0) {
+      const sessionIds = sessions.map((s: any) => s.id);
+      await supabase.from('messages').delete().in('session_id', sessionIds);
+      await supabase.from('chat_sessions').delete().in('id', sessionIds);
+    }
+
+    // Delete website pages and embeddings
+    const { data: pages } = await supabase.from('website_pages').select('id').eq('website_id', id);
+    if (pages && pages.length > 0) {
+      const pageIds = pages.map((p: any) => p.id);
+      await supabase.from('embeddings').delete().in('page_id', pageIds);
+      await supabase.from('website_pages').delete().in('id', pageIds);
+    }
+
+    // Finally delete website row
+    const { error: delErr } = await supabase.from('websites').delete().eq('id', id);
+    if (delErr) throw delErr;
+
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Widget Settings: Get widget configuration
+app.get('/api/websites/:id/widget-settings', async (req, res) => {
+  const { id } = req.params;
+  const { data, error } = await supabase.from('widget_settings').select('*').eq('website_id', id).single();
+  if (error && error.code !== 'PGRST116') { // PGRST116 = no rows
+    return res.status(500).json({ error: error.message });
+  }
+  
+  // Return default settings if not found
+  if (!data) {
+    return res.json({
+      websiteId: id,
+      avatarUrl: null,
+      greetingMessage: 'Hello! How can I help you today?',
+      position: 'bottom-right',
+      theme: 'light',
+      primaryColor: '#2563eb',
+    });
+  }
+  
+  res.json(data);
+});
+
+// Widget Settings: Update widget configuration
+app.put('/api/websites/:id/widget-settings', async (req, res) => {
+  const { id } = req.params;
+  const { avatarUrl, greetingMessage, position, theme, primaryColor } = req.body;
+
+  try {
+    const ownership = await requireWebsiteOwnership(req, res, id);
+    if (!ownership) return;
+    // Check if settings exist
+    const { data: existing } = await supabase.from('widget_settings').select('id').eq('website_id', id).single();
+    
+    if (existing) {
+      // Update existing
+      const { data, error } = await supabase.from('widget_settings').update({
+        avatarUrl,
+        greetingMessage,
+        position,
+        theme,
+        primaryColor,
+        updatedAt: new Date().toISOString(),
+      }).eq('website_id', id).select().single();
+      
+      if (error) throw error;
+      res.json(data);
+    } else {
+      // Insert new
+      const { data, error } = await supabase.from('widget_settings').insert([{
+        websiteId: id,
+        avatarUrl,
+        greetingMessage,
+        position,
+        theme,
+        primaryColor,
+        updatedAt: new Date().toISOString(),
+      }]).select().single();
+      
+      if (error) throw error;
+      res.json(data);
+    }
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Chat History: Get all messages for a website
+app.get('/api/websites/:id/conversations', async (req, res) => {
+  const { id } = req.params;
+  const ownership = await requireWebsiteOwnership(req, res, id);
+  if (!ownership) return;
+
+  const { data, error } = await supabase
+    .from('chat_sessions')
+    .select('id,created_at,ended_at,visitor_id')
+    .eq('website_id', id)
+    .order('created_at', { ascending: false });
+  
+  if (error) {
+    return res.status(500).json({ error: error.message });
+  }
+  res.json(data);
+});
+
+// Chat History: Get messages for a specific session
+app.get('/api/conversations/:session_id/messages', async (req, res) => {
+  const { session_id } = req.params;
+  try {
+    // verify session belongs to a website owned by the requester
+    const { data: sessionData, error: sessionError } = await supabase.from('chat_sessions').select('id,website_id').eq('id', session_id).single();
+    if (sessionError || !sessionData) return res.status(404).json({ error: sessionError?.message || 'Session not found' });
+
+    const ownership = await requireWebsiteOwnership(req, res, sessionData.website_id);
+    if (!ownership) return;
+
+    const { data, error } = await supabase
+      .from('messages')
+      .select('id,role,content,created_at')
+      .eq('session_id', session_id)
+      .order('created_at', { ascending: true });
+    
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+    res.json(data);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Chat History: Search conversations by date
+app.get('/api/websites/:id/conversations/search', async (req, res) => {
+  const { id } = req.params;
+  const { startDate, endDate } = req.query;
+
+  try {
+    const ownership = await requireWebsiteOwnership(req, res, id);
+    if (!ownership) return;
+    let query = supabase
+      .from('chat_sessions')
+      .select('id,created_at,ended_at,visitor_id')
+      .eq('website_id', id);
+
+    if (startDate) query = query.gte('created_at', startDate);
+    if (endDate) query = query.lte('created_at', endDate);
+
+    const { data, error } = await query.order('created_at', { ascending: false });
+    if (error) throw error;
+
+    res.json(data);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// End chat session
+app.post('/api/conversations/:session_id/end', async (req, res) => {
+  const { session_id } = req.params;
+
+  try {
+    // verify session belongs to website owned by requester
+    const { data: sessionData, error: sessionError } = await supabase.from('chat_sessions').select('id,website_id').eq('id', session_id).single();
+    if (sessionError || !sessionData) return res.status(404).json({ error: sessionError?.message || 'Session not found' });
+
+    const ownership = await requireWebsiteOwnership(req, res, sessionData.website_id);
+    if (!ownership) return;
+
+    const { error } = await supabase
+      .from('chat_sessions')
+      .update({ ended_at: new Date().toISOString() })
+      .eq('id', session_id);
+    
+    if (error) throw error;
+    res.json({ success: true, message: 'Session ended' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post('/api/chat', async (req, res) => {
-  const { website_id, message } = req.body;
+  const { website_id, message, session_id: providedSessionId } = req.body;
   if (!website_id || !message) {
     return res.status(400).json({ error: 'website_id and message are required' });
   }
 
   try {
+    let sessionId = providedSessionId;
+    
+    // Create or reuse session
+    if (!sessionId) {
+      const visitorId = `visitor-${crypto.randomUUID().split('-')[0]}`;
+      const { data: session, error: sessionError } = await supabase
+        .from('chat_sessions')
+        .insert([{ website_id, visitor_id: visitorId }])
+        .select('id')
+        .single();
+      
+      if (sessionError) throw sessionError;
+      sessionId = session.id;
+    }
+
+    // Store user message
+    await supabase.from('messages').insert([{
+      session_id: sessionId,
+      role: 'user',
+      content: message,
+    }]);
+
+    // Get context for the message
     const queryEmbedding = await generateEmbedding(message);
     const { data, error } = await supabase.rpc('match_embeddings', {
       query_embedding: queryEmbedding,
@@ -307,7 +701,97 @@ app.post('/api/chat', async (req, res) => {
     });
 
     const answer = safeResponseText(response).trim();
-    res.json({ answer, sourceChunks: chunks.slice(0, 5) });
+    
+    // Store assistant message
+    await supabase.from('messages').insert([{
+      session_id: sessionId,
+      role: 'assistant',
+      content: answer,
+    }]);
+
+    res.json({ 
+      answer, 
+      sourceChunks: chunks.slice(0, 5),
+      sessionId,
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Account: get current user/profile
+app.get('/api/me', async (req, res) => {
+  try {
+    const user = await getUserFromHeader(req);
+    if (!user) return res.status(401).json({ error: 'Unauthorized' });
+
+    const { data: profile, error } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
+    if (error) return res.status(500).json({ error: error.message });
+
+    res.json({ user, profile });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Account: update profile
+app.put('/api/me', async (req, res) => {
+  try {
+    const user = await getUserFromHeader(req);
+    if (!user) return res.status(401).json({ error: 'Unauthorized' });
+
+    const { display_name, avatar_url } = req.body;
+
+    const { data: existing, error: existingErr } = await supabase.from('profiles').select('id').eq('id', user.id).maybeSingle();
+    if (existingErr) throw existingErr;
+
+    if (existing) {
+      const { data, error } = await supabase.from('profiles').update({ display_name, avatar_url, updated_at: new Date().toISOString() }).eq('id', user.id).select().single();
+      if (error) throw error;
+      return res.json(data);
+    }
+
+    const { data, error } = await supabase.from('profiles').insert([{ id: user.id, email: user.email, display_name, avatar_url }]).select().single();
+    if (error) throw error;
+    res.json(data);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Account: delete account (cleanup data owned by user). This will NOT delete the auth user.
+app.delete('/api/me', async (req, res) => {
+  try {
+    const user = await getUserFromHeader(req);
+    if (!user) return res.status(401).json({ error: 'Unauthorized' });
+
+    // find all websites owned by user
+    const { data: websites } = await supabase.from('websites').select('id').eq('user_id', user.id);
+    if (websites && websites.length > 0) {
+      for (const w of websites) {
+        const id = w.id;
+        const { data: sessions } = await supabase.from('chat_sessions').select('id').eq('website_id', id);
+        if (sessions && sessions.length > 0) {
+          const sessionIds = sessions.map((s: any) => s.id);
+          await supabase.from('messages').delete().in('session_id', sessionIds);
+          await supabase.from('chat_sessions').delete().in('id', sessionIds);
+        }
+
+        const { data: pages } = await supabase.from('website_pages').select('id').eq('website_id', id);
+        if (pages && pages.length > 0) {
+          const pageIds = pages.map((p: any) => p.id);
+          await supabase.from('embeddings').delete().in('page_id', pageIds);
+          await supabase.from('website_pages').delete().in('id', pageIds);
+        }
+
+        await supabase.from('websites').delete().eq('id', id);
+      }
+    }
+
+    // delete profile row
+    await supabase.from('profiles').delete().eq('id', user.id);
+
+    res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
