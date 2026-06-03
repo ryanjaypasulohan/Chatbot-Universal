@@ -17,39 +17,27 @@ const isProduction = process.env.NODE_ENV === 'production';
 const allowedOrigin = process.env.ALLOWED_ORIGIN || process.env.PUBLIC_APP_URL || '';
 
 // ==========================================
-// CUSTOM PUBLIC WIDGET CORS MIDDLEWARE
+// PUBLIC WIDGET ENDPOINTS: Wildcard CORS (runs FIRST, most specific paths)
 // ==========================================
-// This middleware runs FIRST and explicitly sets wildcard CORS for public widget endpoints
-// It runs before any other CORS middleware so it has priority
+// Apply wildcard CORS to public widget paths BEFORE any other CORS middleware
+// This ensures these endpoints are not subject to the restrictive dashboard CORS
+app.use('/widget', cors({ origin: '*', credentials: false }));
+app.post('/api/chat', cors({ origin: '*', credentials: false }));
+app.get('/api/chat', cors({ origin: '*', credentials: false }));
+app.options('/api/chat', cors({ origin: '*', credentials: false }));
+
+// Handle dynamic /api/websites/:id/widget-settings route
 app.use((req: any, res: any, next: any) => {
-  const path = req.path;
-  
-  // Check if this is a public widget endpoint
-  const isPublicWidget = 
-    path.startsWith('/widget/') ||
-    path === '/api/chat' ||
-    /^\/api\/websites\/[^/]+\/widget-settings/.test(path);
-  
-  if (isPublicWidget) {
-    // Allow requests from any origin for widget endpoints
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, Authorization');
-    res.setHeader('Access-Control-Max-Age', '86400');
-    
-    // Handle preflight OPTIONS requests
-    if (req.method === 'OPTIONS') {
-      return res.sendStatus(200);
-    }
+  if (/^\/api\/websites\/[^/]+\/widget-settings$/.test(req.path)) {
+    return cors({ origin: '*', credentials: false })(req, res, next);
   }
-  
   next();
 });
 
 // ==========================================
-// PRIVATE DASHBOARD CORS (Keeps your main app secure)
+// PRIVATE DASHBOARD ENDPOINTS: Restrictive CORS (runs LAST, applies to everything else)
 // ==========================================
-// Dashboard and admin endpoints use restricted origin (your app only)
+// All other /api routes use restricted origin (dashboard only)
 if (isProduction && allowedOrigin) {
   app.use(cors({ origin: allowedOrigin, credentials: true }));
 } else {
