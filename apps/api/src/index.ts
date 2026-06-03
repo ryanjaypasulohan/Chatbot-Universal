@@ -75,6 +75,26 @@ const __dirname = path.dirname(__filename);
 const dashboardStatic = path.resolve(__dirname, '../../dashboard/public');
 const widgetStatic = path.resolve(__dirname, '../../widget/src');
 
+// Handle OPTIONS preflight for widget (required for CORS)
+app.options('/widget/embed.js', (_req: any, res: any) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept');
+  res.setHeader('Access-Control-Max-Age', '86400');
+  res.sendStatus(200);
+});
+
+// Explicit route for embed.js with wildcard CORS
+// This route executes BEFORE the static middleware, ensuring headers are set correctly
+app.get('/widget/embed.js', (req: any, res: any) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept');
+  res.setHeader('Cache-Control', 'public, max-age=3600'); // Allow caching but with 1 hour TTL
+  const filePath = path.join(widgetStatic, 'embed.js');
+  res.sendFile(filePath);
+});
+
 app.use('/widget', express.static(widgetStatic));
 app.use(express.static(dashboardStatic));
 
