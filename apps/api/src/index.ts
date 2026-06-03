@@ -58,6 +58,19 @@ if (isProduction) {
   app.set('trust proxy', 1);
 }
 
+// Security Headers Middleware
+// Prevents common attacks (XSS, clickjacking, MIME type sniffing)
+app.use((req: any, res: any, next: any) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  // Note: HSTS requires HTTPS; Render handles this automatically
+  if (isProduction) {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  next();
+});
+
 app.use(express.json({ limit: '1mb' }));
 
 const CRAWL_USER_AGENT =
@@ -66,7 +79,16 @@ const CRAWL_USER_AGENT =
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 function rateLimit(maxPerMinute = 120) {
   return (req: any, res: any, next: any) => {
-    const key = req.ip || req.socket?.remoteAddress || 'unknown';
+    // Fix: Use x-forwarded-for (set by Render proxy) as primary IP source
+    // This prevents rate-limiting the entire app when behind a proxy
+    const forwardedFor = req.headers['x-forwarded-for'];
+    const clientIp = Array.isArray(forwardedFor)
+      ? forwardedFor[0]
+      : typeof forwardedFor === 'string'
+        ? forwardedFor.split(',')[0].trim()
+        : req.ip || req.socket?.remoteAddress || 'unknown';
+    
+    const key = clientIp;
     const now = Date.now();
     let entry = rateLimitMap.get(key);
     if (!entry || now > entry.resetAt) {
@@ -219,13 +241,21 @@ function mapWidgetSettingsToClient(row: any, websiteId: string) {
 }
 
 function widgetSettingsFromBody(websiteId: string, body: any) {
+  // Security: Validate enum values to prevent storing invalid data
+  const validPositions = ['top-left', 'top-right', 'middle-left', 'middle-right', 'bottom-left', 'bottom-right'];
+  const validThemes = ['light', 'dark'];
+  
+  const position = body.position ?? body.postion ?? 'bottom-right';
+  const theme = body.theme ?? 'light';
+  const primaryColor = body.primaryColor ?? body.primary_color ?? '#00E5FF';
+  
   return {
     website_id: websiteId,
     avatar_url: body.avatarUrl ?? body.avatar_url ?? null,
     greeting_message: body.greetingMessage ?? body.greeting_message ?? 'Hello! How can I help you today?',
-    position: body.position ?? 'bottom-right',
-    theme: body.theme ?? 'light',
-    primary_color: body.primaryColor ?? body.primary_color ?? '#00E5FF',
+    position: validPositions.includes(position) ? position : 'bottom-right',
+    theme: validThemes.includes(theme) ? theme : 'light',
+    primary_color: /^#[0-9A-Fa-f]{6}$/.test(primaryColor) ? primaryColor : '#00E5FF',
     updated_at: new Date().toISOString(),
   };
 }
@@ -483,19 +513,29 @@ async function fetchPageForCrawl(url: string) {
   if (!robotsCheck.allowed) {
     return { ok: false as const, error: `Unable to access website. Reason: ${robotsCheck.reason || 'Blocked by robots.txt'}.` };
   }
-  const response = await fetch(url, {
-    headers: {
-      'User-Agent': CRAWL_USER_AGENT,
-      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      'Accept-Language': 'en-US,en;q=0.9',
-    },
-    redirect: 'follow',
-  });
-  if (!response.ok) {
-    return { ok: false as const, error: describeHttpStatus(response.status, url) };
+  
+  // Security: Add timeout to prevent hanging on slow/malicious servers
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+  
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': CRAWL_USER_AGENT,
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+      redirect: 'follow',
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      return { ok: false as const, error: describeHttpStatus(response.status, url) };
+    }
+    const html = await response.text();
+    return { ok: true as const, html };
+  } finally {
+    clearTimeout(timeoutId);
   }
-  const html = await response.text();
-  return { ok: true as const, html };
 }
 
 async function crawlWebsite(
@@ -1050,8 +1090,16 @@ app.post('/api/conversations/:session_id/end', async (req, res) => {
 
 app.post('/api/chat', async (req, res) => {
   const { website_id, message, session_id: providedSessionId } = req.body;
+  
+  // Input Validation: Prevent abuse and ensure data integrity
   if (!website_id || !message) {
     return res.status(400).json({ error: 'website_id and message are required' });
+  }
+  
+  // Security: Validate message length (prevent exhaustion attacks)
+  const messageStr = String(message).trim();
+  if (messageStr.length < 1 || messageStr.length > 5000) {
+    return res.status(400).json({ error: 'Message must be between 1 and 5000 characters.' });
   }
 
   try {
@@ -1074,11 +1122,11 @@ app.post('/api/chat', async (req, res) => {
     await supabase.from('messages').insert([{
       session_id: sessionId,
       role: 'user',
-      content: message,
+      content: messageStr,
     }]);
 
     // Get context for the message
-    const queryEmbedding = await generateEmbedding(message);
+    const queryEmbedding = await generateEmbedding(messageStr);
     const { data, error } = await supabase.rpc('match_embeddings', {
       query_embedding: queryEmbedding,
       match_threshold: 0.0,
@@ -1094,7 +1142,7 @@ app.post('/api/chat', async (req, res) => {
       ? data.map((row: any) => row.content).filter(Boolean)
       : [];
 
-    const prompt = buildGroqPrompt(message, chunks);
+    const prompt = buildGroqPrompt(messageStr, chunks);
     const response = await groq.responses.create({
       model: 'llama-3.3-70b-versatile',
       input: prompt,
@@ -1116,7 +1164,9 @@ app.post('/api/chat', async (req, res) => {
       sessionId,
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    // Security: Log internal error server-side, return generic message to client
+    console.error('Chat endpoint error:', error);
+    res.status(500).json({ error: 'Failed to process your message. Please try again.' });
   }
 });
 
