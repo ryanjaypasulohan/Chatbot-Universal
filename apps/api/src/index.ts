@@ -1213,8 +1213,8 @@ app.post('/api/chat', async (req, res) => {
     });
 
     const response = await groq.responses.create({
-      model: 'qwen/qwen3-32b',
-      // model: 'llama-3.1-8b-instant',
+      // model: 'qwen/qwen3-32b',
+      model: 'llama-3.1-8b-instant',
       // model: 'llama-3.3-70b-versatile',
       input: prompt,
       max_output_tokens: 400,
