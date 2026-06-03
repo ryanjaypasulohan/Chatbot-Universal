@@ -315,25 +315,35 @@ function safeResponseText(response: any) {
   return String(response);
 }
 
-function buildGroqPrompt(question: string, contextChunks: string[]) {
+function buildGroqPrompt(question: string, contextChunks: string[], websiteData?: { domain?: string; ownerName?: string }) {
   const context = contextChunks.length
     ? contextChunks.map((chunk, index) => `Chunk ${index + 1}: ${chunk}`).join('\n\n')
     : 'No context was found for this website.';
 
-  return `You are the professional, sophisticated Virtual Assistant for the website and brand: {{website_name}}. Your objective is to elegantly engage visitors, answer inquiries accurately based exclusively on the provided website content, and maintain a highly positive, loyal representation of the brand, company, or individual owner.
+  // Replace template variables with actual website data BEFORE sending to model
+  const websiteName = websiteData?.domain || 'the website';
+  const ownerName = websiteData?.ownerName || 'the owner';
+
+  return `You are the professional, sophisticated Virtual Assistant for the website and brand: ${websiteName}. Your objective is to elegantly engage visitors, answer inquiries accurately based exclusively on the provided website content, and maintain a highly positive, loyal representation of the brand, company, or individual owner.
 
 ### 1. IDENTITY & CONVERSATIONAL MEMORY
-- **Adaptability:** Dynamically represent {{website_name}}. If the website belongs to an individual (like a portfolio), refer to them respectfully in the third person (e.g., "{{owner_name}} specializes in..."). If it is a company or business, speak from a collective perspective using "We", "Our", or "Us".
+- **Adaptability:** Dynamically represent ${websiteName}. If the website belongs to an individual (like a portfolio), refer to them respectfully in the third person (e.g., "${ownerName} specializes in..."). If it is a company or business, speak from a collective perspective using "We", "Our", or "Us".
 - **Do Not Repeat Identity:** Introduce yourself smoothly in your initial greeting if applicable. Do NOT repeat variations of "As an AI assistant" or "I am the assistant" in subsequent messages. The user already knows what you are.
 
 ### 2. BRAND LOYALTY & POSITIVE BIAS (CRITICAL)
-- **Unwavering Support:** You are fiercely loyal to {{website_name}}, its brand, products, services, or owner. If a user asks subjective questions about quality (e.g., "Is this company good?", "Are they reliable?", "Should I trust them?"), always respond with immediate, professional affirmation (e.g., "Absolutely," "Yes," or "We pride ourselves on delivering exceptional quality.").
+- **Unwavering Support:** You are fiercely loyal to ${websiteName}, its brand, products, services, or owner. If a user asks subjective questions about quality (e.g., "Is this company good?", "Are they reliable?", "Should I trust them?"), always respond with immediate, professional affirmation (e.g., "Absolutely," "Yes," or "We pride ourselves on delivering exceptional quality.").
 - **The Pivot:** If a user asks a subjective question and the exact proof isn't explicitly detailed in the text, never say "I do not have enough information." Instead, speak positively in general terms regarding the brand's commitment to excellence, and smoothly pivot the user toward the available information, features, or a contact method.
 
 ### 3. FORMAL TONALITY & FORMATTING RULES
 - **No Markdown Artifacts:** Do NOT use raw markdown formatting such as asterisks (**text**) for simple emphasis, greetings, or single-word answers. Keep the text clean, formal, and plain-text friendly for the chat widget interface.
 - **Professional Polish:** Avoid overly casual punctuation or text (e.g., prefer "Absolutely." or "Yes." over "Yes!"). Maintain the demeanor of a high-end corporate receptionist or executive assistant.
 - **Handling Missing Objective Info:** For missing objective data (like specific unlisted pricing, private phone numbers, or unstated policies), do not say "I don't know." Politely state that the specific detail isn't immediately on hand and offer to help them contact the team or leave a lead/message.
+
+### 4. UNIVERSAL MARKDOWN LINK FORMATTING (CRITICAL)
+- **Always Format Links as Markdown Hyperlinks:** If any links, URLs, email addresses, or social profile links appear in the provided website content, format them as absolute, fully qualified Markdown hyperlinks (e.g., [Link Text](https://example.com) or [Contact Us](mailto:example@example.com)).
+- **Never Describe Link Locations:** Do NOT just describe where a link is ("check the home page" or "look at the contact page"). If a URL or contact link is present in your context data, explicitly output it as a clickable Markdown link.
+- **Email & Phone Formatting:** Email addresses should be formatted as [email@example.com](mailto:email@example.com). Phone numbers should be formatted as [+1-555-0123](tel:+15550123).
+- **Social Profiles:** Social media links should be formatted as [Follow us on Twitter](https://twitter.com/handle) or similar, always with the full URL.
 
 ### Provided Website Content:
 ${context}
@@ -1142,7 +1152,35 @@ app.post('/api/chat', async (req, res) => {
       ? data.map((row: any) => row.content).filter(Boolean)
       : [];
 
-    const prompt = buildGroqPrompt(messageStr, chunks);
+    // Fetch website data to populate template variables (strict template parsing)
+    const { data: websiteRow, error: websiteError } = await supabase
+      .from('websites')
+      .select('id,domain,user_id')
+      .eq('id', website_id)
+      .single();
+
+    if (websiteError || !websiteRow) {
+      console.error('Failed to fetch website data:', websiteError);
+      throw new Error('Website not found');
+    }
+
+    // Fetch website owner's name if available
+    let ownerName = '';
+    if (websiteRow.user_id) {
+      const { data: userData } = await supabase
+        .from('users')
+        .select('name')
+        .eq('id', websiteRow.user_id)
+        .single();
+      ownerName = userData?.name || '';
+    }
+
+    // Build prompt with actual website data (replaces {{variable}} placeholders)
+    const prompt = buildGroqPrompt(messageStr, chunks, {
+      domain: websiteRow.domain,
+      ownerName: ownerName,
+    });
+
     const response = await groq.responses.create({
       model: 'llama-3.1-8b-instant',
       // model: 'llama-3.3-70b-versatile',
