@@ -341,12 +341,21 @@ function buildGroqPrompt(question: string, contextChunks: string[], websiteData?
 - **Professional Polish:** Avoid overly casual punctuation or text (e.g., prefer "Absolutely." or "Yes." over "Yes!"). Maintain the demeanor of a high-end corporate receptionist or executive assistant.
 - **Handling Missing Objective Info:** If the provided website content below is empty, missing, or does not contain the answer to an objective question, do not say "I have no content." Instead, politely state that the specific detail isn't immediately on hand and offer to help them contact the team or leave a message via the platform's contact methods.
 
-### 4. UNIVERSAL MARKDOWN LINK FORMATTING (CRITICAL)
-- **Always Format Links as Complete Markdown Hyperlinks:** If any links, URLs, email addresses, or social profile links appear or are implied in the website content, you MUST format them as absolute, fully qualified Markdown hyperlinks. Every markdown link must have a closing parenthesis.
-- **URL Standard:** Ensure all web links include the full protocol (e.g., use [Link Text](https://facebook.com) instead of unclickable shorthands).
-- **Never Describe Link Locations:** Do NOT just describe where a link is ("check the home page" or "look at the contact page"). If a URL or contact link is present in your context data, explicitly output it as a clickable Markdown link.
-- **Email & Phone Formatting:** Email addresses should be formatted as [email@example.com](mailto:email@example.com). Phone numbers should be formatted as [+1-555-0123](tel:+15550123).
-- **Social Profiles:** Social media links should be formatted as [Follow us on Facebook](https://facebook.com/yourpage), always with the complete, valid URL structure.
+### 4. LINK FORMATTING (CRITICAL - SIMPLE RULES)
+When you mention any URL, email, or social media link, ALWAYS format it as a clickable link using this exact format:
+- **Website Links:** [Link Text](https://example.com)
+- **Email Links:** [email@example.com](mailto:email@example.com)
+- **Phone Links:** [+1-555-0123](tel:+15550123)
+- **Social Media:** [Facebook](https://facebook.com/username)
+
+EXAMPLES OF CORRECT FORMATTING:
+Incorrect: "Visit their Facebook profile"
+Correct: "You can connect with them on [Facebook](https://facebook.com/ryanpasulohan)"
+
+Incorrect: "Email: ryan@example.com"
+Correct: "You can email them at [ryan@example.com](mailto:ryan@example.com)"
+
+RULE: Never use emoji prefixes, never nest brackets, never describe where links are. Just provide clean clickable links.
 
 ### Provided Website Content:
 ${context || "Contact details and general brand info for " + websiteName}
@@ -355,6 +364,25 @@ ${context || "Contact details and general brand info for " + websiteName}
 ${question}
 
 Answer:`;
+}
+
+function cleanupLinks(text: string): string {
+  // Remove malformed nested links and emoji prefixes
+  // Pattern 1: Remove emoji prefixes before link text like [🔗 text](url) → [text](url)
+  text = text.replace(/\[([🔗📧🌐📞])\s*/g, '[');
+  
+  // Pattern 2: Fix nested links like [text]([url](actual_url)) → [text](actual_url)
+  text = text.replace(/\]\(\[[^\]]*\]\(([^)]+)\)\)/g, ']($1)');
+  
+  // Pattern 3: Fix double-wrapped links [[text](url)](another_url) → [text](url)
+  text = text.replace(/\[\[([^\]]+)\]\(([^)]+)\)\]\([^)]*\)/g, '[$1]($2)');
+  
+  // Pattern 4: Remove markdown formatting from plain text (but keep links intact)
+  // This prevents **text** or *text* outside of links
+  text = text.replace(/(?<!\()\*\*([^*]+)\*\*(?!\))/g, '$1');
+  text = text.replace(/(?<!\()\*([^*]+)\*(?!\))/g, '$1');
+  
+  return text;
 }
 
 function splitText(text: string, maxLength = 900, overlap = 100) {
@@ -1192,7 +1220,10 @@ app.post('/api/chat', async (req, res) => {
       max_output_tokens: 400,
     });
 
-    const answer = safeResponseText(response).trim();
+    let answer = safeResponseText(response).trim();
+    
+    // Clean up any malformed links in the response
+    answer = cleanupLinks(answer);
     
     // Store assistant message
     await supabase.from('messages').insert([{
