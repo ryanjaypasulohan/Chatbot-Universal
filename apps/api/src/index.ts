@@ -16,6 +16,15 @@ const app = express();
 const isProduction = process.env.NODE_ENV === 'production';
 const allowedOrigin = process.env.ALLOWED_ORIGIN || process.env.PUBLIC_APP_URL || '';
 
+// ==========================================
+// WIDGET CORS EXCEPTION (Crucial Fix)
+// ==========================================
+// This must sit above your main CORS configuration so it intercepts widget requests first
+app.use('/widget', cors({ origin: '*' }));
+
+// ==========================================
+// MAIN DASHBOARD CORS (Keeps your main app secure)
+// ==========================================
 if (isProduction && allowedOrigin) {
   app.use(cors({ origin: allowedOrigin, credentials: true }));
 } else {
@@ -49,7 +58,6 @@ function rateLimit(maxPerMinute = 120) {
   };
 }
 app.use('/api', rateLimit(180));
-
 // Handle invalid JSON payloads gracefully (avoid server crash)
 app.use((err: any, _req: any, res: any, next: any) => {
   if (err && err.type === 'entity.parse.failed') {
