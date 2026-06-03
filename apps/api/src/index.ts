@@ -1144,7 +1144,8 @@ app.post('/api/chat', async (req, res) => {
 
     const prompt = buildGroqPrompt(messageStr, chunks);
     const response = await groq.responses.create({
-      model: 'llama-3.3-70b-versatile',
+      model: 'llama-3.1-8b-instant',
+      // model: 'llama-3.3-70b-versatile',
       input: prompt,
       max_output_tokens: 400,
     });
