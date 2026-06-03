@@ -17,14 +17,19 @@ const isProduction = process.env.NODE_ENV === 'production';
 const allowedOrigin = process.env.ALLOWED_ORIGIN || process.env.PUBLIC_APP_URL || '';
 
 // ==========================================
-// WIDGET CORS EXCEPTION (Crucial Fix)
+// PUBLIC WIDGET CORS (Widget runs on customer sites)
 // ==========================================
-// This must sit above your main CORS configuration so it intercepts widget requests first
+// Public widget endpoints need wildcard CORS for cross-origin requests from any customer domain
 app.use('/widget', cors({ origin: '*' }));
+app.options('/api/chat', cors({ origin: '*' }));
+app.use('/api/chat', cors({ origin: '*' }));
+app.options('/api/websites/:id/widget-settings', cors({ origin: '*' }));
+app.use('/api/websites/:id/widget-settings', cors({ origin: '*' }));
 
 // ==========================================
-// MAIN DASHBOARD CORS (Keeps your main app secure)
+// PRIVATE DASHBOARD CORS (Keeps your main app secure)
 // ==========================================
+// Dashboard and admin endpoints use restricted origin (your app only)
 if (isProduction && allowedOrigin) {
   app.use(cors({ origin: allowedOrigin, credentials: true }));
 } else {
