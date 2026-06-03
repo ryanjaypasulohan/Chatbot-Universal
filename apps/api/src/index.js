@@ -9,7 +9,34 @@ import * as shared from '@ai-chatbot/shared';
 import { generateEmbedding } from '@ai-chatbot/embeddings';
 validateEnv();
 const app = express();
+
+// 1. Keep a clean, global CORS setup for your general APIs
 app.use(cors({ origin: true }));
+
+// 2. Make an EXCEPTION for your widget files so they always allow * everything
+app.use('/widget', (req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
+    next();
+});
+
+// 3. Fix your existing custom middleware so it DOES NOT touch the /widget path
+app.use((req, res, next) => {
+    // Skip this middleware if the request is for the widget
+    if (req.path.startsWith('/widget')) {
+        return next();
+    }
+
+    const origin = req.get('origin');
+    if (origin) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Vary', 'Origin');
+        res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+        res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+    }
+    next();
+});
 app.use(express.json({ limit: '1mb' }));
 const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
 const groq = new OpenAI({ apiKey: env.GROQ_API_KEY, baseURL: 'https://api.groq.com/openai/v1' });
