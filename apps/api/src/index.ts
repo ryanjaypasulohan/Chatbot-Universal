@@ -7,6 +7,8 @@ import { createClient } from '@supabase/supabase-js';
 import OpenAI from 'openai';
 import { parse } from 'node-html-parser';
 import * as shared from '@ai-chatbot/shared';
+import { createGroqClient, processVoiceMessage } from '@ai-chatbot/ai';
+import multer from 'multer';
 const { env, validateEnv } = shared;
 import { generateEmbedding } from '@ai-chatbot/embeddings';
 
@@ -15,6 +17,20 @@ validateEnv();
 const app = express();
 const isProduction = process.env.NODE_ENV === 'production';
 const allowedOrigin = process.env.ALLOWED_ORIGIN || process.env.PUBLIC_APP_URL || '';
+
+// Configure multer for audio uploads
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 }, // 25MB max
+  fileFilter: (req, file, cb) => {
+    // Accept audio files only
+    if (file.mimetype.startsWith('audio/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only audio files are allowed'));
+    }
+  },
+});
 
 // ==========================================
 // UNIFIED CORS MIDDLEWARE (Conditional)
@@ -28,6 +44,7 @@ app.use((req: any, res: any, next: any) => {
   const isPublicWidget = 
     path.startsWith('/widget/') ||
     path === '/api/chat' ||
+    path === '/api/voice/respond' ||
     /^\/api\/websites\/[^/]+\/widget-settings/.test(path);
   
   if (isPublicWidget) {
@@ -114,6 +131,7 @@ app.use((err: any, _req: any, res: any, next: any) => {
 
 const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
 const groq = new OpenAI({ apiKey: env.GROQ_API_KEY, baseURL: 'https://api.groq.com/openai/v1' });
+const groqClient = createGroqClient(env.GROQ_API_KEY);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1471,6 +1489,65 @@ app.delete('/api/me', async (req, res) => {
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Voice API: Process audio messages using speech-to-text and LLM
+app.post('/api/voice/respond', upload.single('audio'), async (req, res) => {
+  const { website_id, session_id: providedSessionId } = req.body;
+
+  // Validate input
+  if (!website_id) {
+    return res.status(400).json({ error: 'website_id is required' });
+  }
+
+  if (!req.file) {
+    return res.status(400).json({ error: 'audio file is required' });
+  }
+
+  try {
+    let sessionId = providedSessionId;
+
+    // Create or reuse session
+    if (!sessionId) {
+      const visitorId = `visitor-${crypto.randomUUID().split('-')[0]}`;
+      const { data: session, error: sessionError } = await supabase
+        .from('chat_sessions')
+        .insert([{ website_id, visitor_id: visitorId }])
+        .select('id')
+        .single();
+
+      if (sessionError) throw sessionError;
+      sessionId = session.id;
+    }
+
+    // Process voice message: transcribe and generate response
+    const { transcription, response } = await processVoiceMessage(groqClient, req.file.buffer);
+
+    // Store transcribed user message
+    await supabase.from('messages').insert([{
+      session_id: sessionId,
+      role: 'user',
+      content: transcription,
+      mode: 'voice',
+    }]);
+
+    // Store assistant response
+    await supabase.from('messages').insert([{
+      session_id: sessionId,
+      role: 'assistant',
+      content: response,
+      mode: 'voice',
+    }]);
+
+    res.json({
+      answer: response,
+      transcription,
+      sessionId,
+    });
+  } catch (error: any) {
+    console.error('Voice endpoint error:', error);
+    res.status(500).json({ error: 'Failed to process voice message. Please try again.' });
   }
 });
 

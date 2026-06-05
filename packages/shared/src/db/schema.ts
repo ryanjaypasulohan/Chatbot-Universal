@@ -61,6 +61,7 @@ export const messages = pgTable('messages', {
   sessionId: uuid('session_id').references(() => chatSessions.id).notNull(),
   role: text('role').$type<'user' | 'assistant'>().notNull(),
   content: text('content').notNull(),
+  mode: text('mode').$type<'text' | 'voice'>().default('text'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
