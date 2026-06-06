@@ -11,6 +11,7 @@ import { createGroqClient, processVoiceMessage } from '@ai-chatbot/ai';
 import multer from 'multer';
 const { env, validateEnv } = shared;
 import { generateEmbedding } from '@ai-chatbot/embeddings';
+import Groq from 'groq-sdk';
 
 validateEnv();
 
@@ -1465,6 +1466,32 @@ app.post('/api/voice/respond', upload.single('audio'), async (req, res) => {
     res.status(500).json({ error: 'Failed to process voice message. Please try again.' });
   }
 });
+
+// ==================== TTS ENDPOINT ====================
+app.post('/api/tts', async (req, res) => {
+  const { text } = req.body;
+
+  if (!text) {
+    return res.status(400).json({ error: 'No text provided for TTS' });
+  }
+
+  try {
+    const groqClient = new Groq({ apiKey: env.GROQ_API_KEY });
+    const response = await groqClient.audio.speech.create({
+      model: 'canopylabs/orpheus-v1-english',
+      input: text,
+      voice: 'hannah',      // or 'troy', 'austin'
+      response_format: 'wav',
+    });
+    const buffer = Buffer.from(await response.arrayBuffer());
+    res.setHeader('Content-Type', 'audio/wav');
+    res.send(buffer);
+  } catch (error) {
+    console.error('TTS API error:', error);
+    res.status(500).json({ error: 'Failed to generate speech' });
+  }
+});
+
 // SPA fallback for dashboard deep links
 app.get('/dashboard.html', (_req, res) => {
   res.sendFile(path.join(dashboardStatic, 'dashboard.html'));
