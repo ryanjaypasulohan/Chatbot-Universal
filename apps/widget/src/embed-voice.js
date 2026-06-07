@@ -1,4 +1,3 @@
-import Groq from 'groq-sdk';
 const config = window.AI_CHATBOT_WIDGET_CONFIG || {};
 const scriptEl = document.currentScript || Array.from(document.getElementsByTagName('script')).find((tag) => tag.src && tag.src.includes('embed.js'));
 const websiteId = config.websiteId || scriptEl?.dataset?.websiteId;
@@ -651,9 +650,14 @@ async function initializeVoiceRecording() {
       recordedChunks = [];
       isRecording = false;
       micBtnElement.classList.remove('recording');
+      // Disable mic while we process the audio to avoid race conditions
+      try { micBtnElement.disabled = true; } catch (e) {}
       voiceStatusElement.textContent = 'Processing...';
 
       await sendVoiceMessage(audioBlob);
+
+      // Re-enable mic after processing completes (success or failure)
+      try { micBtnElement.disabled = false; } catch (e) {}
     };
 
     return true;
@@ -666,6 +670,12 @@ async function initializeVoiceRecording() {
 
 async function sendVoiceMessage(audioBlob) {
   try {
+    // Basic validation: ensure we captured some audio
+    if (!audioBlob || typeof audioBlob.size !== 'number' || audioBlob.size < 300) {
+      console.warn('No audio captured or recording too small', audioBlob && audioBlob.size);
+      voiceStatusElement.textContent = 'No audio captured. Please try again.';
+      return;
+    }
     const formData = new FormData();
     formData.append('website_id', websiteId);
     formData.append('session_id', sessionId || '');
@@ -691,10 +701,11 @@ async function sendVoiceMessage(audioBlob) {
     
     // Add to chat history (only once)
     addMessage(botText, 'bot');
-    voiceStatusElement.textContent = 'Generating voice...';
+    voiceStatusElement.textContent = 'Generating audio...';
 
-    // --- Call the new TTS endpoint ---
-    const ttsResponse = await fetch('/api/tts', {
+    // --- Call the TTS endpoint on the configured API host ---
+    const ttsUrl = apiUrl.replace('/api/chat', '/api/tts');
+    const ttsResponse = await fetch(ttsUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text: botText }),
@@ -711,8 +722,8 @@ async function sendVoiceMessage(audioBlob) {
     voiceStatusElement.textContent = 'Playing response...';
 
     audio.onended = () => {
-      URL.revokeObjectURL(audioUrl); // Clean up
-      voiceStatusElement.textContent = 'Click to record';
+      try { URL.revokeObjectURL(audioUrl); } catch (e) {}
+      voiceStatusElement.textContent = 'Click to start recording';
     };
 
     audio.onerror = (error) => {
@@ -720,10 +731,24 @@ async function sendVoiceMessage(audioBlob) {
       voiceStatusElement.textContent = 'Error playing audio';
     };
 
-    audio.play();
+    // Play and let the onended handler restore the UI
+    await audio.play().catch((err) => {
+      // Playback blocked in some browsers — show a play button for the user
+      console.warn('Playback blocked, requiring user gesture', err);
+      voiceStatusElement.innerHTML = '<button id="ai-chatbot-play-response">Play response</button>';
+      const playBtn = panel.querySelector('#ai-chatbot-play-response');
+      if (playBtn) {
+        playBtn.addEventListener('click', () => {
+          audio.play();
+          // restore text
+          voiceStatusElement.textContent = 'Playing response...';
+        });
+      }
+    });
   } catch (error) {
     console.error('Voice message error:', error);
-    voiceStatusElement.textContent = 'Error processing audio';
+    // Surface a helpful status so users know what happened
+    voiceStatusElement.textContent = (error && error.message) ? `Error: ${error.message}` : 'Error processing audio';
   }
 }
 
