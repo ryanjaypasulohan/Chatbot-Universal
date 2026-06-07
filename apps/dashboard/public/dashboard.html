@@ -9,6 +9,15 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/css/wildscript.css" />
+  <style>
+    /* Accordion styles for Your Websites */
+    .ws-accordion-item { border-bottom: 1px solid #eef2f7; }
+    .ws-accordion-header { padding: 12px; cursor: pointer; display:flex; align-items:center; justify-content:space-between; transition: opacity 0.3s ease; }
+    .ws-accordion-header:hover {opacity:0.5;}
+    .ws-accordion-content { max-height: 0; overflow: hidden; transition: max-height 0.28s ease; padding: 0 12px; }
+    .ws-accordion-item.open .ws-accordion-content { max-height: 900px; padding: 12px; }
+    .ws-accordion-chevron { font-size: 0.9rem; color: var(--ws-text-muted); }
+  </style>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
@@ -25,12 +34,13 @@
       </a>
       <nav>
         <ul class="ws-nav">
-          <li><button type="button" class="ws-nav-item active" data-tab="chatbots"><span class="ws-nav-icon">🤖</span> Chatbots</button></li>
+          <li><button type="button" class="ws-nav-item active" data-tab="chatbots"><span class="ws-nav-icon">🤖</span> Websites</button></li>
           <li><button type="button" class="ws-nav-item" data-tab="knowledge"><span class="ws-nav-icon">📚</span> Knowledge Base</button></li>
           <li><button type="button" class="ws-nav-item" data-tab="training"><span class="ws-nav-icon">🧠</span> AI Configuration</button></li>
           <li><button type="button" class="ws-nav-item" data-tab="widget"><span class="ws-nav-icon">💬</span> Widget</button></li>
           <li><button type="button" class="ws-nav-item" data-tab="analytics"><span class="ws-nav-icon">📊</span> Analytics</button></li>
           <li><button type="button" class="ws-nav-item" data-tab="conversations"><span class="ws-nav-icon">💭</span> Conversations</button></li>
+          <li><button type="button" class="ws-nav-item" data-tab="howitworks"><span class="ws-nav-icon">📖</span> How It Works</button></li>
           <li><button type="button" class="ws-nav-item" data-tab="account"><span class="ws-nav-icon">👤</span> Account</button></li>
         </ul>
       </nav>
@@ -40,7 +50,7 @@
       <header class="ws-header">
         <div style="display:flex;align-items:center;gap:12px">
           <button type="button" class="ws-mobile-toggle" id="menuToggle" aria-label="Menu">☰</button>
-          <h1 style="margin:0;font-size:1.25rem" id="pageTitle">Chatbots</h1>
+          <h1 style="margin:0;font-size:1.25rem" id="pageTitle">Websites</h1>
         </div>
         <div class="ws-auth-nav" id="authControls"></div>
       </header>
@@ -49,8 +59,8 @@
         <!-- CHATBOTS -->
         <section id="chatbots" class="tab-content active">
           <div class="ws-card">
-            <h2>Create chatbot</h2>
-            <p class="ws-card-desc">Each chatbot can be trained on a website, documents, or custom knowledge.</p>
+            <h2>Add chatbot to your website</h2>
+            <p class="ws-card-desc">Each chatbot is connected to a website domain and can be trained on its content.</p>
             <div class="ws-grid-2">
               <div>
                 <label data-tooltip="Your website domain">Domain</label>
@@ -61,15 +71,15 @@
                 <input id="startUrl" placeholder="https://example.com" />
               </div>
             </div>
-            <button type="button" class="ws-btn ws-btn-primary" id="createWebsite">Create chatbot</button>
+            <button type="button" class="ws-btn ws-btn-primary" id="createWebsite">Add chatbot to your website</button>
             <div id="createResult"></div>
           </div>
 
           <div class="ws-card">
             <h2>Crawl website</h2>
             <p class="ws-card-desc">Train your chatbot from live web pages. Single page or full site crawl.</p>
-            <label>Select chatbot</label>
-            <select id="crawlWebsiteSelect"><option value="">Choose a chatbot...</option></select>
+            <label>Select Website</label>
+            <select id="crawlWebsiteSelect"><option value="">Select Website...</option></select>
             <input id="crawlWebsiteId" type="hidden" />
             <label>Start URL (optional)</label>
             <input id="crawlUrl" placeholder="https://example.com" />
@@ -82,7 +92,7 @@
 
           <div class="ws-card">
             <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
-              <h2 style="margin:0">Your chatbots</h2>
+              <h2 style="margin:0">Your Websites</h2>
               <button type="button" class="ws-btn ws-btn-secondary ws-btn-sm" id="retryWebsites">Retry</button>
             </div>
             <div id="websiteList"><div class="ws-skeleton"></div><div class="ws-skeleton"></div></div>
@@ -91,7 +101,7 @@
           <div class="ws-card">
             <h2>Embed script</h2>
             <p class="ws-card-desc">Paste this on your site before the closing <code>&lt;/body&gt;</code> tag.</p>
-            <pre id="embedSnippet" class="ws-code-block">Create a chatbot to generate your embed code.</pre>
+            <pre id="embedSnippet" class="ws-code-block">Add a website to generate your embed code.</pre>
             <div class="ws-btn-group">
               <button type="button" class="ws-btn ws-btn-primary ws-btn-sm" id="copyEmbedBtn">Copy Script</button>
               <a href="/embed-instructions.html" class="ws-btn ws-btn-secondary ws-btn-sm" style="text-decoration:none">View Instructions</a>
@@ -100,13 +110,27 @@
           </div>
         </section>
 
+        <!-- HOW IT WORKS -->
+        <section id="howitworks" class="tab-content">
+          <div class="ws-card">
+            <h2>How It Works</h2>
+            <p class="ws-card-desc">A quick 4-step guide to get your chatbot live on your website.</p>
+            <ol>
+              <li><strong>Step 1:</strong> Add your website domain details in the "Add chatbot to your website" form.</li>
+              <li><strong>Step 2:</strong> Customize your virtual assistant’s settings and appearance in the Widget tab.</li>
+              <li><strong>Step 3:</strong> Copy the generated script snippet from the Embed script card.</li>
+              <li><strong>Step 4:</strong> Paste the script into your website's header/footer (or HTML) to go live.</li>
+            </ol>
+          </div>
+        </section>
+
         <!-- KNOWLEDGE BASE -->
         <section id="knowledge" class="tab-content">
           <div class="ws-card">
             <h2>Knowledge base</h2>
             <p class="ws-card-desc">View, search, and manage indexed content used to train your chatbot.</p>
-            <label>Select chatbot</label>
-            <select id="contentWebsiteId"><option value="">Choose a chatbot...</option></select>
+            <label>Select Website</label>
+            <select id="contentWebsiteId"><option value="">Select Website...</option></select>
             <label>Search documents</label>
             <input id="knowledgeSearch" placeholder="Search by title or URL..." />
             <button type="button" class="ws-btn ws-btn-secondary ws-btn-sm" id="refreshPages">Refresh</button>
@@ -123,8 +147,8 @@
         <section id="training" class="tab-content">
           <div class="ws-card">
             <h2>AI personality &amp; response settings</h2>
-            <label>Select chatbot</label>
-            <select id="aiWebsiteId"><option value="">Choose a chatbot...</option></select>
+            <label>Select Website</label>
+            <select id="aiWebsiteId"><option value="">Select Website...</option></select>
             <label>Personality</label>
             <div class="ws-chips" id="personalityChips">
               <button type="button" class="ws-chip" data-value="professional">Professional</button>
@@ -160,8 +184,8 @@
         <section id="widget" class="tab-content">
           <div class="ws-card">
             <h2>Widget customization</h2>
-            <label>Select chatbot</label>
-            <select id="widgetWebsiteId"><option value="">Choose a chatbot...</option></select>
+            <label>Select Website</label>
+            <select id="widgetWebsiteId"><option value="">Select Website...</option></select>
             <label>Logo / Avatar URL</label>
             <input id="avatarUrl" placeholder="https://example.com/avatar.png" />
             <label>Welcome message</label>
@@ -192,8 +216,8 @@
         <section id="analytics" class="tab-content">
           <div class="ws-card">
             <h2>Analytics</h2>
-            <label>Select chatbot</label>
-            <select id="analyticsWebsiteId"><option value="">Choose a chatbot...</option></select>
+            <label>Select Website</label>
+            <select id="analyticsWebsiteId"><option value="">Select Website...</option></select>
             <div id="analyticsStats" class="ws-stats-grid"></div>
             <div class="ws-chart-wrap"><canvas id="analyticsChart"></canvas></div>
           </div>
@@ -203,8 +227,8 @@
         <section id="conversations" class="tab-content">
           <div class="ws-card">
             <h2>Conversation history</h2>
-            <label>Select chatbot</label>
-            <select id="convWebsiteId"><option value="">Choose a chatbot...</option></select>
+            <label>Select Website</label>
+            <select id="convWebsiteId"><option value="">Select Website...</option></select>
             <label>Date range (optional)</label>
             <div class="search-row">
               <input id="startDate" type="date" />
@@ -213,7 +237,7 @@
               <button type="button" class="ws-btn ws-btn-secondary ws-btn-sm" id="clearConvBtn">Clear</button>
             </div>
             <h3>Conversations</h3>
-            <div id="conversationsList" class="chat-container">Select a chatbot to load conversations.</div>
+            <div id="conversationsList" class="chat-container">Select a website to load conversations.</div>
             <h3>Messages</h3>
             <div id="messagesList" class="chat-container">Select a conversation to view messages.</div>
           </div>

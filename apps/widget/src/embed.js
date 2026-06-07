@@ -1,79 +1,4 @@
-const config = window.AI_CHATBOT_WIDGET_CONFIG || {};
-const scriptEl = document.currentScript || Array.from(document.getElementsByTagName('script')).find((tag) => tag.src && tag.src.includes('embed.js'));
-const websiteId = config.websiteId || scriptEl?.dataset?.websiteId;
-const apiUrl = config.apiUrl || scriptEl?.dataset?.apiUrl;
-
-if (!websiteId || !apiUrl) {
-  console.error('AI chatbot widget requires websiteId and apiUrl.');
-} else {
-  let widgetSettings = {
-    avatarUrl: null,
-    greetingMessage: 'Hello! How can I help you today?',
-    position: 'bottom-right',
-    theme: 'light',
-    primaryColor: '#2563eb',
-  };
-
-  // Fetch widget settings from API
-  fetch(`${apiUrl.replace('/api/chat', '')}/api/websites/${websiteId}/widget-settings`)
-    .then(res => res.json())
-    .then(settings => {
-      widgetSettings = settings;
-      initializeWidget(widgetSettings);
-    })
-    .catch(err => {
-      console.error('Failed to load widget settings:', err);
-      initializeWidget(widgetSettings);
-    });
-
-  function getPositionStyles(position) {
-    const isMobile = window.innerWidth < 768;
-    const mobilePosition = isMobile ? 'bottom-left' : position;
-    
-    const positions = {
-      'top-left': { top: '20px', left: '20px', bottom: 'auto', right: 'auto' },
-      'top-right': { top: '20px', right: '20px', bottom: 'auto', left: 'auto' },
-      'middle-left': { top: '50%', left: '20px', bottom: 'auto', right: 'auto', transform: 'translateY(-50%)' },
-      'middle-right': { top: '50%', right: '20px', bottom: 'auto', left: 'auto', transform: 'translateY(-50%)' },
-      'bottom-left': { bottom: '20px', left: '20px', top: 'auto', right: 'auto' },
-      'bottom-right': { bottom: '20px', right: '20px', top: 'auto', left: 'auto' },
-    };
-    return positions[mobilePosition] || positions['bottom-right'];
-  }
-
-  function parseMarkdown(text) {
-    return text
-      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-      .replace(/\*(.*?)\*/g, '<em>$1</em>')
-      .replace(/\n- /g, '<br>• ')
-      .replace(/\n\d+\. /g, '<br>')
-      .replace(/\n/g, '<br>');
-  }
-
-  function detectAndRenderComponents(text) {
-    let html = parseMarkdown(text);
-    
-    const urlRegex = /(https?:\/\/[^\s]+)/g;
-    html = html.replace(urlRegex, (url) => {
-      return `<a href="${url}" target="_blank" style="color: #2563eb; text-decoration: underline; cursor: pointer; font-weight: bold;">🔗 ${new URL(url).hostname}</a>`;
-    });
-    
-    const emailRegex = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/gi;
-    html = html.replace(emailRegex, (email) => {
-      return `<a href="mailto:${email}" style="color: #2563eb; text-decoration: underline; cursor: pointer; font-weight: bold;">📧 ${email}</a>`;
-    });
-    
-    const phoneRegex = /(\+?1?\s?[-.\s]?\(?[2-9]\d{2}\)?[-.\s]?\d{3}[-.\s]?\d{4})/g;
-    html = html.replace(phoneRegex, (phone) => {
-      return `<a href="tel:${phone.replace(/\D/g, '')}" style="color: #2563eb; text-decoration: underline; cursor: pointer; font-weight: bold;">☎️ ${phone}</a>`;
-    });
-    
-    return html;
-  }
-
-  function initializeWidget(settings) {
-    const style = document.createElement('style');
-    style.textContent = `
+var dt=window.AI_CHATBOT_WIDGET_CONFIG||{},pt=document.currentScript||Array.from(document.getElementsByTagName("script")).find(C=>C.src&&C.src.includes("embed.js")),A=dt.websiteId||pt?.dataset?.websiteId,I=dt.apiUrl||pt?.dataset?.apiUrl;if(!A||!I)console.error("AI chatbot widget requires websiteId and apiUrl.");else{let ot=function(o){let y=window.innerWidth<768?"bottom-left":o,c={"top-left":{top:"20px",left:"20px",bottom:"auto",right:"auto"},"top-right":{top:"20px",right:"20px",bottom:"auto",left:"auto"},"middle-left":{top:"50%",left:"20px",bottom:"auto",right:"auto",transform:"translateY(-50%)"},"middle-right":{top:"50%",right:"20px",bottom:"auto",left:"auto",transform:"translateY(-50%)"},"bottom-left":{bottom:"20px",left:"20px",top:"auto",right:"auto"},"bottom-right":{bottom:"20px",right:"20px",top:"auto",left:"auto"}};return c[y]||c["bottom-right"]},bt=function(o){return o.replace(/\*\*(.*?)\*\*/g,"<strong>$1</strong>").replace(/\*(.*?)\*/g,"<em>$1</em>").replace(/\n- /g,"<br>\u2022 ").replace(/\n\d+\. /g,"<br>").replace(/\n/g,"<br>")},F=function(o){let s=bt(o),y=/(https?:\/\/[^\s]+)/g;s=s.replace(y,e=>`<a href="${e}" target="_blank" style="color: #2563eb; text-decoration: underline; cursor: pointer; font-weight: bold;">\u{1F517} ${new URL(e).hostname}</a>`);let c=/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/gi;s=s.replace(c,e=>`<a href="mailto:${e}" style="color: #2563eb; text-decoration: underline; cursor: pointer; font-weight: bold;">\u{1F4E7} ${e}</a>`);let u=/(\+?1?\s?[-.\s]?\(?[2-9]\d{2}\)?[-.\s]?\d{3}[-.\s]?\d{4})/g;return s=s.replace(u,e=>`<a href="tel:${e.replace(/\D/g,"")}" style="color: #2563eb; text-decoration: underline; cursor: pointer; font-weight: bold;">\u260E\uFE0F ${e}</a>`),s},W=function(o){let s=document.createElement("style");s.textContent=`
       .ai-chatbot-widget-container {
         position: fixed;
         z-index: 999999;
@@ -113,8 +38,8 @@ if (!websiteId || !apiUrl) {
       }
 
       .ai-chatbot-tab.active {
-        color: ${settings.primaryColor};
-        border-bottom-color: ${settings.primaryColor};
+        color: ${o.primaryColor};
+        border-bottom-color: ${o.primaryColor};
       }
 
       .ai-chatbot-tab-content {
@@ -148,7 +73,7 @@ if (!websiteId || !apiUrl) {
       .ai-chatbot-waveform-bar {
         width: 3px;
         height: 8px;
-        background: ${settings.primaryColor};
+        background: ${o.primaryColor};
         border-radius: 2px;
         animation: waveform-pulse 0.5s ease-in-out infinite;
       }
@@ -168,7 +93,7 @@ if (!websiteId || !apiUrl) {
         width: 60px;
         height: 60px;
         border-radius: 50%;
-        background: ${settings.primaryColor};
+        background: ${o.primaryColor};
         color: white;
         border: none;
         cursor: pointer;
@@ -180,8 +105,21 @@ if (!websiteId || !apiUrl) {
         transition: all 0.2s;
       }
 
+      .ai-chatbot-stop-btn {
+        margin-left: 8px;
+        padding: 8px 10px;
+        border-radius: 10px;
+        background: #ef4444;
+        color: white;
+        border: none;
+        cursor: pointer;
+        font-size: 0.85rem;
+        display: inline-block;
+        min-width: 64px;
+      }
+
       .ai-chatbot-mic-btn:hover {
-        background: ${settings.primaryColor}dd;
+        background: ${o.primaryColor}dd;
         box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
       }
 
@@ -210,7 +148,7 @@ if (!websiteId || !apiUrl) {
         position: fixed;
         z-index: 999999;
         padding: 12px 16px;
-        background: ${settings.primaryColor};
+        background: ${o.primaryColor};
         color: white;
         border: none;
         border-radius: 24px;
@@ -222,7 +160,7 @@ if (!websiteId || !apiUrl) {
       }
 
       .ai-chatbot-open-btn:hover {
-        background: ${settings.primaryColor}dd;
+        background: ${o.primaryColor}dd;
         box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
       }
 
@@ -245,7 +183,7 @@ if (!websiteId || !apiUrl) {
         align-items: center;
         gap: 12px;
         padding: 16px;
-        background: ${settings.primaryColor};
+        background: ${o.primaryColor};
         color: white;
       }
 
@@ -312,7 +250,7 @@ if (!websiteId || !apiUrl) {
       }
 
       .ai-chatbot-message.user {
-        background: ${settings.primaryColor};
+        background: ${o.primaryColor};
         align-self: flex-end;
         color: white;
       }
@@ -348,13 +286,13 @@ if (!websiteId || !apiUrl) {
 
       .ai-chatbot-input:focus {
         outline: none;
-        border-color: ${settings.primaryColor};
-        box-shadow: 0 0 0 3px ${settings.primaryColor}33;
+        border-color: ${o.primaryColor};
+        box-shadow: 0 0 0 3px ${o.primaryColor}33;
       }
 
       .ai-chatbot-send-btn {
         padding: 12px 18px;
-        background: ${settings.primaryColor};
+        background: ${o.primaryColor};
         color: white;
         border: none;
         border-radius: 14px;
@@ -365,7 +303,7 @@ if (!websiteId || !apiUrl) {
       }
 
       .ai-chatbot-send-btn:hover {
-        background: ${settings.primaryColor}dd;
+        background: ${o.primaryColor}dd;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
       }
 
@@ -390,496 +328,10 @@ if (!websiteId || !apiUrl) {
       a {
         color: inherit;
       }
-    `;
-    document.head.appendChild(style);
-
-    const positionStyles = getPositionStyles(settings.position);
-    const openBtn = document.createElement('button');
-    openBtn.className = 'ai-chatbot-open-btn';
-    Object.assign(openBtn.style, positionStyles);
-    openBtn.innerHTML = '💬 Chat';
-    openBtn.id = 'ai-chatbot-open';
-
-    const container = document.createElement('div');
-    container.className = 'ai-chatbot-widget-container';
-    Object.assign(container.style, positionStyles);
-    container.style.width = '320px';
-    container.style.maxWidth = 'calc(100vw - 32px)';
-
-    const panel = document.createElement('div');
-    panel.className = 'ai-chatbot-panel';
-    panel.style.display = 'none';
-    panel.id = 'ai-chatbot-panel';
-
-    const header = document.createElement('div');
-    header.className = 'ai-chatbot-header';
-    header.innerHTML = `
+    `,document.head.appendChild(s);let y=ot(o.position),c=document.createElement("button");c.className="ai-chatbot-open-btn",Object.assign(c.style,y),c.innerHTML="\u{1F4AC} Chat",c.id="ai-chatbot-open";let u=document.createElement("div");u.className="ai-chatbot-widget-container",Object.assign(u.style,y),u.style.width="320px",u.style.maxWidth="calc(100vw - 32px)";let e=document.createElement("div");e.className="ai-chatbot-panel",e.style.display="none",e.id="ai-chatbot-panel";let V=document.createElement("div");V.className="ai-chatbot-header",V.innerHTML=`
       <div class="ai-chatbot-avatar">
-        ${settings.avatarUrl 
-          ? `<img src="${settings.avatarUrl}" alt="Bot Avatar" onerror="this.parentElement.textContent='🤖'" />` 
-          : '🤖'
-        }
+        ${o.avatarUrl?`<img src="${o.avatarUrl}" alt="Bot Avatar" onerror="this.parentElement.textContent='\u{1F916}'" />`:"\u{1F916}"}
       </div>
       <div class="ai-chatbot-title">Website Assistant</div>
-      <button class="ai-chatbot-close-btn" id="ai-chatbot-close">×</button>
-    `;
-
-    const tabContainer = document.createElement('div');
-    tabContainer.className = 'ai-chatbot-tab-container';
-    
-    const chatTab = document.createElement('button');
-    chatTab.className = 'ai-chatbot-tab active';
-    chatTab.textContent = '💬 Chat';
-    chatTab.id = 'ai-chatbot-tab-chat';
-    
-    const voiceTab = document.createElement('button');
-    voiceTab.className = 'ai-chatbot-tab';
-    voiceTab.textContent = '🎤 Voice';
-    voiceTab.id = 'ai-chatbot-tab-voice';
-    
-    tabContainer.appendChild(chatTab);
-    tabContainer.appendChild(voiceTab);
-
-    const body = document.createElement('div');
-    body.className = 'ai-chatbot-body';
-    body.id = 'ai-chatbot-body';
-
-    // Chat content (text mode)
-    const chatContent = document.createElement('div');
-    chatContent.className = 'ai-chatbot-tab-content active';
-    chatContent.id = 'ai-chatbot-chat-content';
-    chatContent.style.flex = '1';
-
-    const chatMessages = document.createElement('div');
-    chatMessages.className = 'ai-chatbot-body';
-    chatMessages.id = 'ai-chatbot-messages';
-    chatContent.appendChild(chatMessages);
-
-    // Voice content (voice mode)
-    const voiceContent = document.createElement('div');
-    voiceContent.className = 'ai-chatbot-tab-content';
-    voiceContent.id = 'ai-chatbot-voice-content';
-    voiceContent.style.flex = '1';
-
-    const voiceContainer = document.createElement('div');
-    voiceContainer.className = 'ai-chatbot-voice-container';
-
-    const waveform = document.createElement('div');
-    waveform.className = 'ai-chatbot-waveform';
-    waveform.id = 'ai-chatbot-waveform';
-    for (let i = 0; i < 5; i++) {
-      const bar = document.createElement('div');
-      bar.className = 'ai-chatbot-waveform-bar';
-      waveform.appendChild(bar);
-    }
-
-    const micBtn = document.createElement('button');
-    micBtn.className = 'ai-chatbot-mic-btn';
-    micBtn.id = 'ai-chatbot-mic';
-    micBtn.innerHTML = '🎤';
-
-    const voiceStatus = document.createElement('div');
-    voiceStatus.className = 'ai-chatbot-voice-status';
-    voiceStatus.id = 'ai-chatbot-voice-status';
-    voiceStatus.textContent = 'Click to start recording';
-
-    voiceContainer.appendChild(waveform);
-    voiceContainer.appendChild(micBtn);
-    voiceContainer.appendChild(voiceStatus);
-    voiceContent.appendChild(voiceContainer);
-
-    body.appendChild(chatContent);
-    body.appendChild(voiceContent);
-
-    const inputRow = document.createElement('div');
-    inputRow.className = 'ai-chatbot-input-row';
-
-    const input = document.createElement('textarea');
-    input.className = 'ai-chatbot-input';
-    input.id = 'ai-chatbot-input';
-    input.placeholder = 'Ask a question...';
-    input.rows = 1;
-
-    const sendBtn = document.createElement('button');
-    sendBtn.className = 'ai-chatbot-send-btn';
-    sendBtn.id = 'ai-chatbot-send';
-    sendBtn.textContent = 'Send';
-
-    inputRow.appendChild(input);
-    inputRow.appendChild(sendBtn);
-
-    panel.appendChild(header);
-    panel.appendChild(tabContainer);
-    panel.appendChild(body);
-    panel.appendChild(inputRow);
-
-    container.appendChild(panel);
-
-    document.body.appendChild(openBtn);
-    document.body.appendChild(container);
-
-    const closeBtn = panel.querySelector('#ai-chatbot-close');
-
-    // conversation persistence
-    const storageKey = `ai_chatbot_${websiteId}_conversation`;
-    let messagesArray = [];
-    let sessionId = null;
-
-    function saveConversationToStorage() {
-      try {
-        localStorage.setItem(storageKey, JSON.stringify({ sessionId, messages: messagesArray }));
-      } catch (e) {
-        console.error('Failed to save conversation', e);
-      }
-    }
-
-    function loadConversationFromStorage() {
-      try {
-        const raw = localStorage.getItem(storageKey);
-        if (!raw) return false;
-        const parsed = JSON.parse(raw);
-        if (!parsed || !Array.isArray(parsed.messages)) return false;
-        sessionId = parsed.sessionId || null;
-        messagesArray = parsed.messages || [];
-        messagesArray.forEach(m => {
-          const msg = document.createElement('div');
-          msg.className = `ai-chatbot-message ${m.role}`;
-          msg.innerHTML = detectAndRenderComponents(m.text);
-          chatMessages.appendChild(msg);
-        });
-        chatMessages.scrollTop = chatMessages.scrollHeight;
-        return true;
-      } catch (e) {
-        console.error('Failed to load conversation', e);
-        return false;
-      }
-    }
-
-    function addMessage(text, role) {
-      const msg = document.createElement('div');
-      msg.className = `ai-chatbot-message ${role}`;
-      msg.innerHTML = detectAndRenderComponents(text);
-      chatMessages.appendChild(msg);
-      chatMessages.scrollTop = chatMessages.scrollHeight;
-
-      // update memory and persist
-      if (role === 'bot' && messagesArray.length > 0 && messagesArray[messagesArray.length - 1].role === 'bot' && messagesArray[messagesArray.length - 1].text === '⏳ Thinking...') {
-        messagesArray[messagesArray.length - 1].text = text;
-      } else {
-        messagesArray.push({ role, text });
-      }
-      saveConversationToStorage();
-    }
-
-    const hadStored = loadConversationFromStorage();
-    if (!hadStored) addMessage(settings.greetingMessage, 'bot');
-
-    function autoExpandInput() {
-      input.style.height = 'auto';
-      const newHeight = Math.min(input.scrollHeight, 100);
-      input.style.height = newHeight + 'px';
-    }
-
-    input.addEventListener('input', autoExpandInput);
-
-    async function sendMessage() {
-      const message = input.value.trim();
-      if (!message) return;
-
-      addMessage(message, 'user');
-      input.value = '';
-      input.style.height = 'auto';
-      addMessage('⏳ Thinking...', 'bot');
-
-      try {
-        const response = await fetch(apiUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ website_id: websiteId, message, session_id: sessionId }),
-        });
-
-        const data = await response.json();
-
-        if (!sessionId && data.sessionId) {
-          sessionId = data.sessionId;
-        }
-
-        const botText = data.answer || data.error || 'Sorry, I could not answer that.';
-        const lastMsg = chatMessages.querySelector('.ai-chatbot-message.bot:last-child');
-        if (lastMsg) {
-          lastMsg.innerHTML = detectAndRenderComponents(botText);
-        }
-        if (messagesArray.length > 0 && messagesArray[messagesArray.length - 1].role === 'bot') {
-          messagesArray[messagesArray.length - 1].text = botText;
-          saveConversationToStorage();
-        }
-      } catch (error) {
-        const lastMsg = chatMessages.querySelector('.ai-chatbot-message.bot:last-child');
-        if (lastMsg) {
-          lastMsg.textContent = 'Unable to reach the chat server.';
-          if (messagesArray.length > 0 && messagesArray[messagesArray.length - 1].role === 'bot') {
-            messagesArray[messagesArray.length - 1].text = 'Unable to reach the chat server.';
-            saveConversationToStorage();
-          }
-        }
-        console.error('Chat error:', error);
-      }
-    }
-
-    // ==================== VOICE FUNCTIONALITY ====================
-    // Audio context + unlock helpers to support mobile playback and iOS/Android
-    let audioContext = null;
-    let audioUnlocked = false;
-
-    function ensureAudioUnlocked() {
-      try {
-        const AudioCtx = window.AudioContext || window.webkitAudioContext;
-        if (!AudioCtx) return;
-        audioContext = audioContext || new AudioCtx();
-        if (audioContext.state === 'suspended') {
-          // resume during user gesture
-          audioContext.resume().then(() => { audioUnlocked = true; }).catch(() => {});
-        } else {
-          audioUnlocked = true;
-        }
-      } catch (err) {
-        console.warn('Audio unlock failed', err);
-      }
-    }
-
-    let mediaRecorder;
-    let recordedChunks = [];
-    let isRecording = false;
-
-    const micBtnElement = panel.querySelector('#ai-chatbot-mic');
-    const voiceStatusElement = panel.querySelector('#ai-chatbot-voice-status');
-
-    async function initializeVoiceRecording() {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-        
-        mediaRecorder.ondataavailable = (event) => {
-          if (event.data.size > 0) {
-            recordedChunks.push(event.data);
-          }
-        };
-
-        mediaRecorder.onstop = async () => {
-          const audioBlob = new Blob(recordedChunks, { type: 'audio/webm' });
-          recordedChunks = [];
-          isRecording = false;
-          micBtnElement.classList.remove('recording');
-          voiceStatusElement.textContent = 'Processing...';
-
-          await sendVoiceMessage(audioBlob);
-        };
-
-        return true;
-      } catch (error) {
-        console.error('Microphone permission denied:', error);
-        voiceStatusElement.textContent = 'Microphone permission denied';
-        return false;
-      }
-    }
-
-    async function sendVoiceMessage(audioBlob) {
-      try {
-        const formData = new FormData();
-        formData.append('website_id', websiteId);
-        formData.append('session_id', sessionId || '');
-        formData.append('audio', audioBlob, 'audio.webm');
-
-        const voiceApiUrl = apiUrl.replace('/api/chat', '/api/voice/respond');
-        const response = await fetch(voiceApiUrl, {
-          method: 'POST',
-          body: formData,
-        });
-
-        if (!response.ok) {
-          throw new Error('Voice API error: ' + response.status);
-        }
-
-        const data = await response.json();
-
-        if (!sessionId && data.sessionId) {
-          sessionId = data.sessionId;
-        }
-
-        const botText = data.answer || 'Sorry, I could not answer that.';
-        
-        // Add to chat history
-        addMessage(botText, 'bot');
-
-        // Generate audio via server-side Groq Orpheus TTS and play it with fallbacks
-        try {
-          voiceStatusElement.textContent = 'Generating audio...';
-          const ttsUrl = apiUrl.replace('/api/chat', '/api/tts');
-          const ttsResp = await fetch(ttsUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: botText }),
-          });
-          if (!ttsResp.ok) throw new Error('TTS API error: ' + ttsResp.status);
-
-          const audioBlob = await ttsResp.blob();
-
-          // Helper to decode for older browsers
-          const decodeAudioDataAsync = (ctx, arrayBuffer) => new Promise((resolve, reject) => {
-            try {
-              ctx.decodeAudioData(arrayBuffer, resolve, reject);
-            } catch (e) {
-              reject(e);
-            }
-          });
-
-          // Prefer AudioContext playback if unlocked
-          if (audioContext && audioUnlocked) {
-            try {
-              const arrayBuffer = await audioBlob.arrayBuffer();
-              const audioBuffer = await decodeAudioDataAsync(audioContext, arrayBuffer);
-              const source = audioContext.createBufferSource();
-              source.buffer = audioBuffer;
-              source.connect(audioContext.destination);
-              source.start(0);
-              voiceStatusElement.textContent = 'Playing response...';
-              source.onended = () => {
-                voiceStatusElement.textContent = 'Click to record';
-              };
-            } catch (err) {
-              // If AudioContext decode/play fails, fallback to audio element
-              const url = URL.createObjectURL(audioBlob);
-              const audioEl = new Audio(url);
-              audioEl.crossOrigin = 'anonymous';
-              audioEl.play().then(() => {
-                voiceStatusElement.textContent = 'Playing response...';
-              }).catch(() => {
-                // Playback blocked — show a play button for the user
-                voiceStatusElement.innerHTML = '<button id="ai-chatbot-play-response">Play response</button>';
-                const playBtn = panel.querySelector('#ai-chatbot-play-response');
-                playBtn.addEventListener('click', () => {
-                  audioEl.play();
-                  playBtn.remove();
-                });
-              });
-              audioEl.onended = () => {
-                voiceStatusElement.textContent = 'Click to record';
-                URL.revokeObjectURL(url);
-              };
-            }
-          } else {
-            // No unlocked AudioContext — use audio element with user-play fallback
-            const url = URL.createObjectURL(audioBlob);
-            const audioEl = new Audio(url);
-            audioEl.crossOrigin = 'anonymous';
-            audioEl.play().then(() => {
-              voiceStatusElement.textContent = 'Playing response...';
-            }).catch(() => {
-              voiceStatusElement.innerHTML = '<button id="ai-chatbot-play-response">Play response</button>';
-              const playBtn = panel.querySelector('#ai-chatbot-play-response');
-              playBtn.addEventListener('click', () => {
-                audioEl.play();
-                playBtn.remove();
-              });
-            });
-            audioEl.onended = () => {
-              voiceStatusElement.textContent = 'Click to record';
-              URL.revokeObjectURL(url);
-            };
-          }
-        } catch (error) {
-          console.error('TTS playback error:', error);
-          voiceStatusElement.textContent = 'Click to record';
-        }
-      } catch (error) {
-        console.error('Voice message error:', error);
-        voiceStatusElement.textContent = 'Error processing audio';
-      }
-    }
-
-    micBtnElement.addEventListener('click', async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-
-      // Attempt to unlock/resume the AudioContext during the user gesture
-      ensureAudioUnlocked();
-
-      if (!mediaRecorder) {
-        const initialized = await initializeVoiceRecording();
-        if (!initialized) return;
-      }
-
-      if (!isRecording) {
-        recordedChunks = [];
-        mediaRecorder.start();
-        isRecording = true;
-        micBtnElement.classList.add('recording');
-        voiceStatusElement.textContent = 'Recording...';
-      } else {
-        mediaRecorder.stop();
-      }
-    });
-
-    // ==================== TAB SWITCHING ====================
-    const chatTabBtn = panel.querySelector('#ai-chatbot-tab-chat');
-    const voiceTabBtn = panel.querySelector('#ai-chatbot-tab-voice');
-    const chatContentDiv = panel.querySelector('#ai-chatbot-chat-content');
-    const voiceContentDiv = panel.querySelector('#ai-chatbot-voice-content');
-
-    function switchTab(tab) {
-      chatTabBtn.classList.remove('active');
-      voiceTabBtn.classList.remove('active');
-      chatContentDiv.classList.remove('active');
-      voiceContentDiv.classList.remove('active');
-
-      if (tab === 'chat') {
-        chatTabBtn.classList.add('active');
-        chatContentDiv.classList.add('active');
-        inputRow.style.display = 'flex';
-      } else {
-        voiceTabBtn.classList.add('active');
-        voiceContentDiv.classList.add('active');
-        inputRow.style.display = 'none';
-      }
-    }
-
-    chatTabBtn.addEventListener('click', () => switchTab('chat'));
-    voiceTabBtn.addEventListener('click', () => switchTab('voice'));
-
-    // ==================== EVENT HANDLERS ====================
-    openBtn.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      panel.style.display = 'flex';
-      openBtn.style.display = 'none';
-      setTimeout(() => input.focus(), 100);
-    });
-
-    closeBtn.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      panel.style.display = 'none';
-      openBtn.style.display = 'inline-block';
-    });
-
-    sendBtn.addEventListener('click', (e) => {
-      e.preventDefault();
-      sendMessage();
-    });
-
-    input.addEventListener('keypress', (event) => {
-      if (event.key === 'Enter' && !event.shiftKey) {
-        event.preventDefault();
-        sendMessage();
-      }
-    });
-
-    window.addEventListener('resize', () => {
-      const newStyles = getPositionStyles(settings.position);
-      Object.assign(openBtn.style, newStyles);
-      Object.assign(container.style, newStyles);
-      container.style.width = '320px';
-      container.style.maxWidth = 'calc(100vw - 32px)';
-    });
-  }
-}
+      <button class="ai-chatbot-close-btn" id="ai-chatbot-close">\xD7</button>
+    `;let R=document.createElement("div");R.className="ai-chatbot-tab-container";let z=document.createElement("button");z.className="ai-chatbot-tab active",z.textContent="\u{1F4AC} Chat",z.id="ai-chatbot-tab-chat";let j=document.createElement("button");j.className="ai-chatbot-tab",j.textContent="\u{1F3A4} Voice",j.id="ai-chatbot-tab-voice",R.appendChild(z),R.appendChild(j);let U=document.createElement("div");U.className="ai-chatbot-body",U.id="ai-chatbot-body";let B=document.createElement("div");B.className="ai-chatbot-tab-content active",B.id="ai-chatbot-chat-content",B.style.flex="1";let m=document.createElement("div");m.className="ai-chatbot-body",m.id="ai-chatbot-messages",B.appendChild(m);let N=document.createElement("div");N.className="ai-chatbot-tab-content",N.id="ai-chatbot-voice-content",N.style.flex="1";let E=document.createElement("div");E.className="ai-chatbot-voice-container";let O=document.createElement("div");O.className="ai-chatbot-waveform",O.id="ai-chatbot-waveform";for(let t=0;t<5;t++){let a=document.createElement("div");a.className="ai-chatbot-waveform-bar",O.appendChild(a)}let _=document.createElement("button");_.className="ai-chatbot-mic-btn",_.id="ai-chatbot-mic",_.innerHTML="\u{1F3A4}";let $=document.createElement("button");$.className="ai-chatbot-stop-btn",$.id="ai-chatbot-stop",$.textContent="\u23F9 Stop",$.style.display="none";let P=document.createElement("div");P.className="ai-chatbot-voice-status",P.id="ai-chatbot-voice-status",P.textContent="Click to start recording",E.appendChild(O),E.appendChild(_),E.appendChild($),E.appendChild(P),N.appendChild(E),U.appendChild(B),U.appendChild(N);let S=document.createElement("div");S.className="ai-chatbot-input-row";let h=document.createElement("textarea");h.className="ai-chatbot-input",h.id="ai-chatbot-input",h.placeholder="Ask a question...",h.rows=1;let M=document.createElement("button");M.className="ai-chatbot-send-btn",M.id="ai-chatbot-send",M.textContent="Send",S.appendChild(h),S.appendChild(M),e.appendChild(V),e.appendChild(R),e.appendChild(U),e.appendChild(S),u.appendChild(e),document.body.appendChild(c),document.body.appendChild(u);let ht=e.querySelector("#ai-chatbot-close"),at=`ai_chatbot_${A}_conversation`,i=[],w=null;function J(){try{localStorage.setItem(at,JSON.stringify({sessionId:w,messages:i}))}catch(t){console.error("Failed to save conversation",t)}}function ut(){try{let t=localStorage.getItem(at);if(!t)return!1;let a=JSON.parse(t);return!a||!Array.isArray(a.messages)?!1:(w=a.sessionId||null,i=a.messages||[],i.forEach(p=>{let f=document.createElement("div");f.className=`ai-chatbot-message ${p.role}`,f.innerHTML=F(p.text),m.appendChild(f)}),m.scrollTop=m.scrollHeight,!0)}catch(t){return console.error("Failed to load conversation",t),!1}}function H(t,a){let p=document.createElement("div");p.className=`ai-chatbot-message ${a}`,p.innerHTML=F(t),m.appendChild(p),m.scrollTop=m.scrollHeight,a==="bot"&&i.length>0&&i[i.length-1].role==="bot"&&i[i.length-1].text==="\u23F3 Thinking..."?i[i.length-1].text=t:i.push({role:a,text:t}),J()}ut()||H(o.greetingMessage,"bot");function mt(){h.style.height="auto";let t=Math.min(h.scrollHeight,100);h.style.height=t+"px"}h.addEventListener("input",mt);async function nt(){let t=h.value.trim();if(t){H(t,"user"),h.value="",h.style.height="auto",H("\u23F3 Thinking...","bot");try{let p=await(await fetch(I,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({website_id:A,message:t,session_id:w})})).json();!w&&p.sessionId&&(w=p.sessionId);let f=p.answer||p.error||"Sorry, I could not answer that.",T=m.querySelector(".ai-chatbot-message.bot:last-child");T&&(T.innerHTML=F(f)),i.length>0&&i[i.length-1].role==="bot"&&(i[i.length-1].text=f,J())}catch(a){let p=m.querySelector(".ai-chatbot-message.bot:last-child");p&&(p.textContent="Unable to reach the chat server.",i.length>0&&i[i.length-1].role==="bot"&&(i[i.length-1].text="Unable to reach the chat server.",J())),console.error("Chat error:",a)}}}let v=null,G=!1;function ft(){try{let t=window.AudioContext||window.webkitAudioContext;if(!t)return;v=v||new t,v.state==="suspended"?v.resume().then(()=>{G=!0}).catch(()=>{}):G=!0}catch(t){console.warn("Audio unlock failed",t)}}let l=null,k=null,g=!1;function yt(){try{if(k){try{k.stop()}catch{}try{k.disconnect&&k.disconnect()}catch{}k=null}if(l){try{l.pause(),l.currentTime=0}catch{}try{l._blobUrl&&URL.revokeObjectURL(l._blobUrl)}catch{}l=null}}finally{g=!1;let t=e.querySelector("#ai-chatbot-stop");t&&(t.style.display="none"),d&&(d.textContent="Click to record")}}let L,D=[],Z=!1,K=e.querySelector("#ai-chatbot-mic"),d=e.querySelector("#ai-chatbot-voice-status"),it=e.querySelector("#ai-chatbot-stop");it&&it.addEventListener("click",t=>{t.preventDefault(),t.stopPropagation(),yt()});async function gt(){try{let t=await navigator.mediaDevices.getUserMedia({audio:!0});return L=new MediaRecorder(t,{mimeType:"audio/webm"}),L.ondataavailable=a=>{a.data.size>0&&D.push(a.data)},L.onstop=async()=>{let a=new Blob(D,{type:"audio/webm"});D=[],Z=!1,K.classList.remove("recording"),d.textContent="Processing...",await xt(a)},!0}catch(t){return console.error("Microphone permission denied:",t),d.textContent="Microphone permission denied",!1}}async function xt(t){try{let a=new FormData;a.append("website_id",A),a.append("session_id",w||""),a.append("audio",t,"audio.webm");let p=I.replace("/api/chat","/api/voice/respond"),f=await fetch(p,{method:"POST",body:a});if(!f.ok)throw new Error("Voice API error: "+f.status);let T=await f.json();!w&&T.sessionId&&(w=T.sessionId);let lt=T.answer||"Sorry, I could not answer that.";H(lt,"bot");try{d.textContent="Generating audio...";let X=I.replace("/api/chat","/api/tts"),tt=await fetch(X,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:lt})});if(!tt.ok)throw new Error("TTS API error: "+tt.status);let et=await tt.blob(),wt=(x,b)=>new Promise((n,r)=>{try{x.decodeAudioData(b,n,r)}catch(q){r(q)}});if(v&&G)try{let x=await et.arrayBuffer(),b=await wt(v,x),n=v.createBufferSource();n.buffer=b,n.connect(v.destination),n.start(0),k=n,g=!0;let r=e.querySelector("#ai-chatbot-stop");r&&(r.style.display="inline-block"),d.textContent="Playing response...",n.onended=()=>{k=null,g=!1,r&&(r.style.display="none"),d.textContent="Click to record"}}catch{let b=URL.createObjectURL(et),n=new Audio(b);n.crossOrigin="anonymous",l=n,l._blobUrl=b,n.play().then(()=>{g=!0;let r=e.querySelector("#ai-chatbot-stop");r&&(r.style.display="inline-block"),d.textContent="Playing response..."}).catch(()=>{d.innerHTML='<button id="ai-chatbot-play-response">Play response</button>';let r=e.querySelector("#ai-chatbot-play-response");r&&r.addEventListener("click",()=>{n.play(),l=n,l._blobUrl=b;let q=e.querySelector("#ai-chatbot-stop");q&&(q.style.display="inline-block"),g=!0,r.remove()})}),n.onended=()=>{d.textContent="Click to record";try{URL.revokeObjectURL(b)}catch{}l=null,g=!1;let r=e.querySelector("#ai-chatbot-stop");r&&(r.style.display="none")}}else{let x=URL.createObjectURL(et),b=new Audio(x);b.crossOrigin="anonymous",l=b,l._blobUrl=x,b.play().then(()=>{g=!0;let n=e.querySelector("#ai-chatbot-stop");n&&(n.style.display="inline-block"),d.textContent="Playing response..."}).catch(()=>{d.innerHTML='<button id="ai-chatbot-play-response">Play response</button>';let n=e.querySelector("#ai-chatbot-play-response");n&&n.addEventListener("click",()=>{b.play(),l=b,l._blobUrl=x;let r=e.querySelector("#ai-chatbot-stop");r&&(r.style.display="inline-block"),g=!0,n.remove()})}),b.onended=()=>{d.textContent="Click to record";try{URL.revokeObjectURL(x)}catch{}l=null,g=!1;let n=e.querySelector("#ai-chatbot-stop");n&&(n.style.display="none")}}}catch(X){console.error("TTS playback error:",X),d.textContent="Click to record"}}catch(a){console.error("Voice message error:",a),d.textContent="Error processing audio"}}K.addEventListener("click",async t=>{t.preventDefault(),t.stopPropagation(),ft(),!(!L&&!await gt())&&(Z?L.stop():(D=[],L.start(),Z=!0,K.classList.add("recording"),d.textContent="Recording..."))});let Y=e.querySelector("#ai-chatbot-tab-chat"),Q=e.querySelector("#ai-chatbot-tab-voice"),rt=e.querySelector("#ai-chatbot-chat-content"),ct=e.querySelector("#ai-chatbot-voice-content");function st(t){Y.classList.remove("active"),Q.classList.remove("active"),rt.classList.remove("active"),ct.classList.remove("active"),t==="chat"?(Y.classList.add("active"),rt.classList.add("active"),S.style.display="flex"):(Q.classList.add("active"),ct.classList.add("active"),S.style.display="none")}Y.addEventListener("click",()=>st("chat")),Q.addEventListener("click",()=>st("voice")),c.addEventListener("click",t=>{t.preventDefault(),t.stopPropagation(),e.style.display="flex",c.style.display="none",setTimeout(()=>h.focus(),100)}),ht.addEventListener("click",t=>{t.preventDefault(),t.stopPropagation(),e.style.display="none",c.style.display="inline-block"}),M.addEventListener("click",t=>{t.preventDefault(),nt()}),h.addEventListener("keypress",t=>{t.key==="Enter"&&!t.shiftKey&&(t.preventDefault(),nt())}),window.addEventListener("resize",()=>{let t=ot(o.position);Object.assign(c.style,t),Object.assign(u.style,t),u.style.width="320px",u.style.maxWidth="calc(100vw - 32px)"})},C={avatarUrl:null,greetingMessage:"Hello! How can I help you today?",position:"bottom-right",theme:"light",primaryColor:"#2563eb"};fetch(`${I.replace("/api/chat","")}/api/websites/${A}/widget-settings`).then(async o=>{if(!o.ok){console.warn("Widget disabled for website",A,o.status),W(C);let s=document.getElementById("ai-chatbot-panel");if(s){let y=s.querySelector("#ai-chatbot-body")||s.querySelector(".ai-chatbot-body");y&&(y.innerHTML='<div style="padding:24px;text-align:center"><strong>Chatbot removed</strong><p style="margin-top:8px;color:#6b7280">This chatbot has been removed or disabled by the site owner. The embed script remains on this site but the assistant is no longer available.</p></div>');let c=s.querySelector(".ai-chatbot-input-row");c&&(c.style.display="none")}throw new Error("widget disabled")}return o.json()}).then(o=>{C=o,W(C)}).catch(o=>{o&&o.message==="widget disabled"||(console.error("Failed to load widget settings:",o),W(C))})}

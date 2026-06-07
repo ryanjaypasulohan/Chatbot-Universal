@@ -52,9 +52,9 @@ function renderWebsiteSkeleton() {
 function renderEmptyWebsites() {
   $('websiteList').innerHTML = `
     <div class="ws-empty">
-      <div class="ws-empty-icon">🤖</div>
-      <p><strong>No chatbots yet</strong></p>
-      <p>Create your first chatbot above to get started.</p>
+      <div class="ws-empty-icon">🌐</div>
+      <p><strong>No websites yet</strong></p>
+      <p>Add your first website above to get started.</p>
     </div>`;
 }
 
@@ -83,7 +83,7 @@ async function fetchWebsites() {
           ? 'Run SUPABASE_SCHEMA_SYNC_MIGRATION.sql in Supabase, then restart the API.'
           : '');
       websitesEl.innerHTML = `
-        <div class="ws-alert ws-alert-error">${escapeHtml(data.error || data.reason || 'Failed to load chatbots.')}${hint ? `<br><small>${escapeHtml(hint)}</small>` : ''}</div>
+        <div class="ws-alert ws-alert-error">${escapeHtml(data.error || data.reason || 'Failed to load websites.')}${hint ? `<br><small>${escapeHtml(hint)}</small>` : ''}</div>
         <button type="button" class="ws-btn ws-btn-secondary ws-btn-sm" id="retryWebsitesInline">Retry</button>`;
       $('retryWebsitesInline')?.addEventListener('click', fetchWebsites);
       return;
@@ -107,24 +107,32 @@ async function fetchWebsites() {
     }
 
     websitesEl.innerHTML = data
-      .map(
-        (ws) => `
-    <div class="ws-chatbot-card">
-      <strong>${escapeHtml(ws.domain)}</strong>
-      <div class="ws-id">${ws.id}</div>
-      <div style="margin-top:8px;font-size:0.85rem;color:var(--ws-text-muted)">Last crawled: ${ws.last_crawled_at ? new Date(ws.last_crawled_at).toLocaleString() : 'Never'}</div>
-      <pre class="ws-code-block" style="font-size:0.75rem;margin-top:12px">${escapeHtml(createEmbedSnippet(ws.id))}</pre>
-      <div class="ws-btn-group">
-        <button type="button" class="ws-btn ws-btn-secondary ws-btn-sm" data-copy="${ws.id}">Copy Script</button>
-        <button type="button" class="ws-btn ws-btn-secondary ws-btn-sm" data-view-knowledge="${ws.id}">Knowledge</button>
-        <button type="button" class="ws-btn ws-btn-secondary ws-btn-sm" data-widget="${ws.id}">Widget</button>
-        <button type="button" class="ws-btn ws-btn-secondary ws-btn-sm" data-duplicate="${ws.id}">Duplicate</button>
-        <button type="button" class="ws-btn ws-btn-secondary ws-btn-sm" data-archive="${ws.id}">Archive</button>
-        <button type="button" class="ws-btn ws-btn-danger ws-btn-sm" data-delete="${ws.id}">Delete</button>
+      .map((ws) => `
+    <div class="ws-accordion-item" data-id="${ws.id}">
+      <div class="ws-accordion-header" data-id="${ws.id}">
+        <div style="display:flex;gap:12px;align-items:center">
+          <div>
+            <strong>${escapeHtml(ws.domain)}</strong>
+            <div class="ws-id" style="font-size:0.85rem;color:var(--ws-text-muted)">${escapeHtml(ws.id)}</div>
+          </div>
+          <div style="margin-left:auto;text-align:right">
+            <div style="font-size:0.85rem;color:var(--ws-text-muted)">Last crawled: ${ws.last_crawled_at ? new Date(ws.last_crawled_at).toLocaleString() : 'Never'}</div>
+            <div class="ws-accordion-chevron">▾</div>
+          </div>
+        </div>
       </div>
-    </div>`,
-      )
-      .join('');
+      <div class="ws-accordion-content">
+        <pre class="ws-code-block" style="font-size:0.75rem;margin-top:8px">${escapeHtml(createEmbedSnippet(ws.id))}</pre>
+        <div class="ws-btn-group" style="margin-top:8px">
+          <button type="button" class="ws-btn ws-btn-secondary ws-btn-sm" data-copy="${ws.id}">Copy Script</button>
+          <button type="button" class="ws-btn ws-btn-secondary ws-btn-sm" data-view-knowledge="${ws.id}">Knowledge</button>
+          <button type="button" class="ws-btn ws-btn-secondary ws-btn-sm" data-widget="${ws.id}">Widget</button>
+          <button type="button" class="ws-btn ws-btn-secondary ws-btn-sm" data-duplicate="${ws.id}">Duplicate</button>
+          <button type="button" class="ws-btn ws-btn-secondary ws-btn-sm" data-archive="${ws.id}">Archive</button>
+          <button type="button" class="ws-btn ws-btn-danger ws-btn-sm" data-delete="${ws.id}">Delete</button>
+        </div>
+      </div>
+    </div>`).join('');
 
     websitesEl.querySelectorAll('[data-copy]').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -157,6 +165,17 @@ async function fetchWebsites() {
       btn.addEventListener('click', () => deleteWebsite(btn.getAttribute('data-delete')));
     });
 
+    // Accordion toggle handlers (collapsed by default)
+    websitesEl.querySelectorAll('.ws-accordion-header').forEach((hdr) => {
+      hdr.addEventListener('click', () => {
+        const item = hdr.closest('.ws-accordion-item');
+        if (!item) return;
+        const isOpen = item.classList.toggle('open');
+        const chevron = item.querySelector('.ws-accordion-chevron');
+        if (chevron) chevron.textContent = isOpen ? '▴' : '▾';
+      });
+    });
+
     updateWebsiteSelects();
   } catch (err) {
     console.error(err);
@@ -177,7 +196,7 @@ function updateWebsiteSelects() {
     'analyticsWebsiteId',
   ];
   const options =
-    '<option value="">Choose a chatbot...</option>' +
+    '<option value="">Select Website...</option>' +
     allWebsites.map((ws) => `<option value="${ws.id}">${escapeHtml(ws.domain)}</option>`).join('');
 
   selects.forEach((id) => {
@@ -203,15 +222,17 @@ async function createWebsite() {
   const data = await res.json();
 
   if (!res.ok) {
-    showInline($('createResult'), data.error || data.reason || 'Failed to create chatbot.', 'error');
+    showInline($('createResult'), data.error || data.reason || 'Failed to add website.', 'error');
     return;
   }
 
-  showInline($('createResult'), `Created chatbot <strong>${escapeHtml(data.website.domain)}</strong>`, 'success');
+  showInline($('createResult'), `Added website <strong>${escapeHtml(data.website.domain)}</strong>`, 'success');
   $('embedSnippet').textContent = data.embedCode || createEmbedSnippet(data.website.id);
+  // Smooth-scroll to the embed snippet so users see the generated script
+  try { document.getElementById('embedSnippet')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
   $('domain').value = '';
   $('startUrl').value = '';
-  showToast('Chatbot created successfully');
+  showToast('Website added successfully');
   await fetchWebsites();
 }
 
@@ -222,7 +243,7 @@ async function crawlWebsite(mode = 'full') {
   const startUrl = $('crawlUrl')?.value?.trim();
 
   if (!websiteId) {
-    showInline($('crawlResult'), 'Select a chatbot to crawl.', 'error');
+    showInline($('crawlResult'), 'Select a website to crawl.', 'error');
     return;
   }
 
@@ -264,12 +285,12 @@ async function duplicateWebsite(websiteId) {
     showToast(data.error || 'Duplicate failed', 'error');
     return;
   }
-  showToast('Chatbot duplicated');
+  showToast('Website duplicated');
   await fetchWebsites();
 }
 
 async function archiveWebsite(websiteId) {
-  if (!confirm('Archive this chatbot? You can restore it later from support.')) return;
+  if (!confirm('Archive this website? You can restore it later from support.')) return;
   const res = await fetch(`${apiBase}/api/websites/${websiteId}`, {
     method: 'PATCH',
     headers: getAuthHeaders(true),
@@ -279,12 +300,12 @@ async function archiveWebsite(websiteId) {
     showToast('Archive failed', 'error');
     return;
   }
-  showToast('Chatbot archived');
+  showToast('Website archived');
   await fetchWebsites();
 }
 
 async function deleteWebsite(websiteId) {
-  if (!confirm('Delete this chatbot and all data? This cannot be undone.')) return;
+  if (!confirm('Delete this website and all data? This cannot be undone.')) return;
   const res = await fetch(`${apiBase}/api/websites/${websiteId}`, {
     method: 'DELETE',
     headers: getAuthHeaders(false),
@@ -294,7 +315,7 @@ async function deleteWebsite(websiteId) {
     showToast(data.error || data.reason || 'Delete failed', 'error');
     return;
   }
-  showToast('Chatbot deleted');
+  showToast('Website deleted');
   await fetchWebsites();
 }
 
@@ -333,7 +354,7 @@ async function loadWebsitePages() {
       pagesList.innerHTML = `
         <div class="ws-empty">
           <div class="ws-empty-icon">📄</div>
-          <p>No indexed content yet. Crawl your website from the Chatbots tab.</p>
+          <p>No indexed content yet. Crawl your website from the Websites tab.</p>
         </div>`;
       return;
     }
@@ -422,7 +443,7 @@ function selectPosition(position) {
 async function saveWidgetSettings() {
   const websiteId = $('widgetWebsiteId')?.value;
   if (!websiteId) {
-    showInline($('widgetResult'), 'Select a chatbot first.', 'error');
+    showInline($('widgetResult'), 'Select a website first.', 'error');
     return;
   }
 
@@ -472,7 +493,7 @@ async function loadAiConfig() {
 async function saveAiConfig() {
   const websiteId = $('aiWebsiteId')?.value;
   if (!websiteId) {
-    showInline($('aiConfigResult'), 'Select a chatbot first.', 'error');
+    showInline($('aiConfigResult'), 'Select a website first.', 'error');
     return;
   }
 
@@ -504,7 +525,7 @@ async function loadAnalytics() {
   const websiteId = $('analyticsWebsiteId')?.value;
   const statsEl = $('analyticsStats');
   if (!websiteId || !statsEl) {
-    statsEl.innerHTML = '<p class="ws-card-desc">Select a chatbot to view analytics.</p>';
+    statsEl.innerHTML = '<p class="ws-card-desc">Select a website to view analytics.</p>';
     return;
   }
 
@@ -564,7 +585,7 @@ async function loadConversations() {
   const websiteId = $('convWebsiteId')?.value;
   const listEl = $('conversationsList');
   if (!websiteId) {
-    listEl.innerHTML = 'Select a chatbot to load conversations.';
+    listEl.innerHTML = 'Select a website to load conversations.';
     return;
   }
 
@@ -630,7 +651,7 @@ async function searchConversations() {
   const endDate = $('endDate')?.value;
 
   if (!websiteId || !startDate || !endDate) {
-    showToast('Select chatbot and date range', 'warning');
+    showToast('Select website and date range', 'warning');
     return;
   }
 
@@ -702,7 +723,7 @@ async function saveProfile() {
 }
 
 async function deleteAccount() {
-  if (!confirm('Delete all your chatbots, pages, and conversations? Auth login remains in Supabase.')) return;
+  if (!confirm('Delete all your websites, pages, and conversations? Auth login remains in Supabase.')) return;
   const res = await fetch(`${apiBase}/api/me`, { method: 'DELETE', headers: getAuthHeaders(false) });
   if (!res.ok) {
     showToast('Delete failed', 'error');
@@ -712,12 +733,13 @@ async function deleteAccount() {
 }
 
 const TAB_TITLES = {
-  chatbots: 'Chatbots',
+  chatbots: 'Websites',
   knowledge: 'Knowledge Base',
   training: 'AI Configuration',
   widget: 'Widget',
   analytics: 'Analytics',
   conversations: 'Conversations',
+  howitworks: 'How It Works',
   account: 'Account',
 };
 
