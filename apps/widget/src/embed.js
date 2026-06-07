@@ -627,6 +627,26 @@ if (!websiteId || !apiUrl) {
     }
 
     // ==================== VOICE FUNCTIONALITY ====================
+    // Audio context + unlock helpers to support mobile playback and iOS/Android
+    let audioContext = null;
+    let audioUnlocked = false;
+
+    function ensureAudioUnlocked() {
+      try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return;
+        audioContext = audioContext || new AudioCtx();
+        if (audioContext.state === 'suspended') {
+          // resume during user gesture
+          audioContext.resume().then(() => { audioUnlocked = true; }).catch(() => {});
+        } else {
+          audioUnlocked = true;
+        }
+      } catch (err) {
+        console.warn('Audio unlock failed', err);
+      }
+    }
+
     let mediaRecorder;
     let recordedChunks = [];
     let isRecording = false;
@@ -691,18 +711,85 @@ if (!websiteId || !apiUrl) {
         // Add to chat history
         addMessage(botText, 'bot');
 
-        // Play audio response using Web Speech API
-        if (window.speechSynthesis) {
-          const utterance = new SpeechSynthesisUtterance(botText);
-          utterance.rate = 1.0;
-          utterance.pitch = 1.0;
-          utterance.volume = 1.0;
-          window.speechSynthesis.speak(utterance);
-          voiceStatusElement.textContent = 'Playing response...';
-          
-          utterance.onend = () => {
-            voiceStatusElement.textContent = 'Click to record';
-          };
+        // Generate audio via server-side Groq Orpheus TTS and play it with fallbacks
+        try {
+          voiceStatusElement.textContent = 'Generating audio...';
+          const ttsUrl = apiUrl.replace('/api/chat', '/api/tts');
+          const ttsResp = await fetch(ttsUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: botText }),
+          });
+          if (!ttsResp.ok) throw new Error('TTS API error: ' + ttsResp.status);
+
+          const audioBlob = await ttsResp.blob();
+
+          // Helper to decode for older browsers
+          const decodeAudioDataAsync = (ctx, arrayBuffer) => new Promise((resolve, reject) => {
+            try {
+              ctx.decodeAudioData(arrayBuffer, resolve, reject);
+            } catch (e) {
+              reject(e);
+            }
+          });
+
+          // Prefer AudioContext playback if unlocked
+          if (audioContext && audioUnlocked) {
+            try {
+              const arrayBuffer = await audioBlob.arrayBuffer();
+              const audioBuffer = await decodeAudioDataAsync(audioContext, arrayBuffer);
+              const source = audioContext.createBufferSource();
+              source.buffer = audioBuffer;
+              source.connect(audioContext.destination);
+              source.start(0);
+              voiceStatusElement.textContent = 'Playing response...';
+              source.onended = () => {
+                voiceStatusElement.textContent = 'Click to record';
+              };
+            } catch (err) {
+              // If AudioContext decode/play fails, fallback to audio element
+              const url = URL.createObjectURL(audioBlob);
+              const audioEl = new Audio(url);
+              audioEl.crossOrigin = 'anonymous';
+              audioEl.play().then(() => {
+                voiceStatusElement.textContent = 'Playing response...';
+              }).catch(() => {
+                // Playback blocked — show a play button for the user
+                voiceStatusElement.innerHTML = '<button id="ai-chatbot-play-response">Play response</button>';
+                const playBtn = panel.querySelector('#ai-chatbot-play-response');
+                playBtn.addEventListener('click', () => {
+                  audioEl.play();
+                  playBtn.remove();
+                });
+              });
+              audioEl.onended = () => {
+                voiceStatusElement.textContent = 'Click to record';
+                URL.revokeObjectURL(url);
+              };
+            }
+          } else {
+            // No unlocked AudioContext — use audio element with user-play fallback
+            const url = URL.createObjectURL(audioBlob);
+            const audioEl = new Audio(url);
+            audioEl.crossOrigin = 'anonymous';
+            audioEl.play().then(() => {
+              voiceStatusElement.textContent = 'Playing response...';
+            }).catch(() => {
+              voiceStatusElement.innerHTML = '<button id="ai-chatbot-play-response">Play response</button>';
+              const playBtn = panel.querySelector('#ai-chatbot-play-response');
+              playBtn.addEventListener('click', () => {
+                audioEl.play();
+                playBtn.remove();
+              });
+            });
+            audioEl.onended = () => {
+              voiceStatusElement.textContent = 'Click to record';
+              URL.revokeObjectURL(url);
+            };
+          }
+        } catch (error) {
+          console.error('TTS playback error:', error);
+          voiceStatusElement.textContent = 'Click to record';
         }
       } catch (error) {
         console.error('Voice message error:', error);
@@ -713,6 +800,9 @@ if (!websiteId || !apiUrl) {
     micBtnElement.addEventListener('click', async (e) => {
       e.preventDefault();
       e.stopPropagation();
+
+      // Attempt to unlock/resume the AudioContext during the user gesture
+      ensureAudioUnlocked();
 
       if (!mediaRecorder) {
         const initialized = await initializeVoiceRecording();

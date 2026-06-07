@@ -1,3 +1,4 @@
+import Groq from 'groq-sdk';
 const config = window.AI_CHATBOT_WIDGET_CONFIG || {};
 const scriptEl = document.currentScript || Array.from(document.getElementsByTagName('script')).find((tag) => tag.src && tag.src.includes('embed.js'));
 const websiteId = config.websiteId || scriptEl?.dataset?.websiteId;
@@ -626,109 +627,125 @@ if (!websiteId || !apiUrl) {
       }
     }
 
-    // ==================== VOICE FUNCTIONALITY ====================
-    let mediaRecorder;
-    let recordedChunks = [];
-    let isRecording = false;
+ // ==================== VOICE FUNCTIONALITY ====================
+let mediaRecorder;
+let recordedChunks = [];
+let isRecording = false;
 
-    const micBtnElement = panel.querySelector('#ai-chatbot-mic');
-    const voiceStatusElement = panel.querySelector('#ai-chatbot-voice-status');
+const micBtnElement = panel.querySelector('#ai-chatbot-mic');
+const voiceStatusElement = panel.querySelector('#ai-chatbot-voice-status');
 
-    async function initializeVoiceRecording() {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-        
-        mediaRecorder.ondataavailable = (event) => {
-          if (event.data.size > 0) {
-            recordedChunks.push(event.data);
-          }
-        };
-
-        mediaRecorder.onstop = async () => {
-          const audioBlob = new Blob(recordedChunks, { type: 'audio/webm' });
-          recordedChunks = [];
-          isRecording = false;
-          micBtnElement.classList.remove('recording');
-          voiceStatusElement.textContent = 'Processing...';
-
-          await sendVoiceMessage(audioBlob);
-        };
-
-        return true;
-      } catch (error) {
-        console.error('Microphone permission denied:', error);
-        voiceStatusElement.textContent = 'Microphone permission denied';
-        return false;
+async function initializeVoiceRecording() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+    
+    mediaRecorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        recordedChunks.push(event.data);
       }
-    }
+    };
 
-    async function sendVoiceMessage(audioBlob) {
-      try {
-        const formData = new FormData();
-        formData.append('website_id', websiteId);
-        formData.append('session_id', sessionId || '');
-        formData.append('audio', audioBlob, 'audio.webm');
+    mediaRecorder.onstop = async () => {
+      const audioBlob = new Blob(recordedChunks, { type: 'audio/webm' });
+      recordedChunks = [];
+      isRecording = false;
+      micBtnElement.classList.remove('recording');
+      voiceStatusElement.textContent = 'Processing...';
 
-        const voiceApiUrl = apiUrl.replace('/api/chat', '/api/voice/respond');
-        const response = await fetch(voiceApiUrl, {
-          method: 'POST',
-          body: formData,
-        });
+      await sendVoiceMessage(audioBlob);
+    };
 
-        if (!response.ok) {
-          throw new Error('Voice API error: ' + response.status);
-        }
+    return true;
+  } catch (error) {
+    console.error('Microphone permission denied:', error);
+    voiceStatusElement.textContent = 'Microphone permission denied';
+    return false;
+  }
+}
 
-        const data = await response.json();
+async function sendVoiceMessage(audioBlob) {
+  try {
+    const formData = new FormData();
+    formData.append('website_id', websiteId);
+    formData.append('session_id', sessionId || '');
+    formData.append('audio', audioBlob, 'audio.webm');
 
-        if (!sessionId && data.sessionId) {
-          sessionId = data.sessionId;
-        }
-
-        const botText = data.answer || 'Sorry, I could not answer that.';
-        
-        // Add to chat history
-        addMessage(botText, 'bot');
-
-        // Play audio response using Web Speech API
-        if (window.speechSynthesis) {
-          const utterance = new SpeechSynthesisUtterance(botText);
-          utterance.rate = 1.0;
-          utterance.pitch = 1.0;
-          utterance.volume = 1.0;
-          window.speechSynthesis.speak(utterance);
-          voiceStatusElement.textContent = 'Playing response...';
-          
-          utterance.onend = () => {
-            voiceStatusElement.textContent = 'Click to record';
-          };
-        }
-      } catch (error) {
-        console.error('Voice message error:', error);
-        voiceStatusElement.textContent = 'Error processing audio';
-      }
-    }
-
-    micBtnElement.addEventListener('click', async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-
-      if (!mediaRecorder) {
-        const initialized = await initializeVoiceRecording();
-        if (!initialized) return;
-      }
-
-      if (!isRecording) {
-        recordedChunks = [];
-        mediaRecorder.start();
-        isRecording = true;
-        micBtnElement.classList.add('recording');
-        voiceStatusElement.textContent = 'Recording...';
-      } else {
-        mediaRecorder.stop();
-      }
+    const voiceApiUrl = apiUrl.replace('/api/chat', '/api/voice/respond');
+    const response = await fetch(voiceApiUrl, {
+      method: 'POST',
+      body: formData,
     });
+
+    if (!response.ok) {
+      throw new Error('Voice API error: ' + response.status);
+    }
+
+    const data = await response.json();
+
+    if (!sessionId && data.sessionId) {
+      sessionId = data.sessionId;
+    }
+
+    const botText = data.answer || 'Sorry, I could not answer that.';
+    
+    // Add to chat history (only once)
+    addMessage(botText, 'bot');
+    voiceStatusElement.textContent = 'Generating voice...';
+
+    // --- Call the new TTS endpoint ---
+    const ttsResponse = await fetch('/api/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: botText }),
+    });
+
+    if (!ttsResponse.ok) {
+      throw new Error('TTS API error: ' + ttsResponse.status);
+    }
+
+    // The response is the audio file itself
+    const audioBlobResponse = await ttsResponse.blob();
+    const audioUrl = URL.createObjectURL(audioBlobResponse);
+    const audio = new Audio(audioUrl);
+    voiceStatusElement.textContent = 'Playing response...';
+
+    audio.onended = () => {
+      URL.revokeObjectURL(audioUrl); // Clean up
+      voiceStatusElement.textContent = 'Click to record';
+    };
+
+    audio.onerror = (error) => {
+      console.error('Audio playback error:', error);
+      voiceStatusElement.textContent = 'Error playing audio';
+    };
+
+    audio.play();
+  } catch (error) {
+    console.error('Voice message error:', error);
+    voiceStatusElement.textContent = 'Error processing audio';
+  }
+}
+
+micBtnElement.addEventListener('click', async (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+
+  if (!mediaRecorder) {
+    const initialized = await initializeVoiceRecording();
+    if (!initialized) return;
+  }
+
+  if (!isRecording) {
+    recordedChunks = [];
+    mediaRecorder.start();
+    isRecording = true;
+    micBtnElement.classList.add('recording');
+    voiceStatusElement.textContent = 'Recording...';
+  } else {
+    mediaRecorder.stop();
+  }
+});
 
     // ==================== TAB SWITCHING ====================
     const chatTabBtn = panel.querySelector('#ai-chatbot-tab-chat');

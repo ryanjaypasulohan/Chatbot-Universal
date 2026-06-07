@@ -46,6 +46,7 @@ app.use((req: any, res: any, next: any) => {
     path.startsWith('/widget/') ||
     path === '/api/chat' ||
     path === '/api/voice/respond' ||
+    path === '/api/tts' ||
     /^\/api\/websites\/[^/]+\/widget-settings/.test(path);
   
   if (isPublicWidget) {
