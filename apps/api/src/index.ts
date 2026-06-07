@@ -12,6 +12,7 @@ import multer from 'multer';
 const { env, validateEnv } = shared;
 import { generateEmbedding } from '@ai-chatbot/embeddings';
 import Groq from 'groq-sdk';
+import os from 'os';
 
 validateEnv();
 
@@ -343,7 +344,7 @@ function buildGroqPrompt(question: string, contextChunks: string[], options: { d
   const websiteName = options.domain;
   const ownerName = options.ownerName;
 
-  const prompt = `You are the official, dedicated Virtual Assistant for ${websiteName}. You are a loyal, kind, and highly professional brand ambassador designed exclusively to serve this company. Professionally assist visitors, answer questions using the provided website content, guide users, and represent the brand in a polished, trustworthy manner.
+  const prompt = `You are a dedicated Virtual Assistant for ${websiteName}. You are a loyal, kind, and highly professional brand ambassador designed exclusively to serve this company. Professionally assist visitors, answer questions using the provided website content, guide users, and represent the brand in a polished, trustworthy manner.
 
 1. IDENTITY & REPRESENTATION (CONTEXT AWARENESS)
 * CRITICAL CONTEXT: The visitor is ALREADY browsing our website. Never say "visit our website", "go to ${websiteName}", or "for more details, check out the site." Provide the details directly right here in the chat.
@@ -1542,7 +1543,7 @@ app.post('/api/voice/respond', upload.single('audio'), async (req, res) => {
   }
 });
 
-// ==================== TTS ENDPOINT ====================
+// ==================== TTS ENDPOINT (Edge TTS preferred, Google TTS fallback) ====================
 app.post('/api/tts', async (req, res) => {
   const { text } = req.body;
 
@@ -1551,19 +1552,151 @@ app.post('/api/tts', async (req, res) => {
   }
 
   try {
-    const groqClient = new Groq({ apiKey: env.GROQ_API_KEY });
-    const response = await groqClient.audio.speech.create({
-      model: 'canopylabs/orpheus-v1-english',
-      input: text,
-      voice: 'hannah',      // or 'troy', 'austin'
-      response_format: 'wav',
-    });
-    const buffer = Buffer.from(await response.arrayBuffer());
-    res.setHeader('Content-Type', 'audio/wav');
-    res.send(buffer);
-  } catch (error) {
-    console.error('TTS API error:', error);
-    res.status(500).json({ error: 'Failed to generate speech' });
+    // First attempt: edge-tts (no API key required for the package)
+    try {
+      // Dynamic import to avoid loading in environments where it's not installed
+      const edgeModule: any = await import('edge-tts');
+
+      // edge-tts may export a `synthesize` function directly or under `default`
+      const synth = edgeModule?.synthesize ?? edgeModule?.default?.synthesize ?? (typeof edgeModule === 'function' ? edgeModule : undefined);
+      if (typeof synth !== 'function') {
+        throw new Error('edge-tts synthesize function not found');
+      }
+
+      const ttsStream = synth(text, {
+        voice: process.env.TTS_VOICE || 'en-US-EmmaMultilingualNeural',
+        rate: '0%',
+        volume: '0%',
+      });
+
+      // Collect audio chunks into a buffer
+      const chunks: Buffer[] = [];
+      for await (const chunk of ttsStream) {
+        if (!chunk) continue;
+        if (typeof chunk === 'string') {
+          // sometimes the library yields data URLs (data:audio/...;base64,XXX)
+          const m = chunk.match(/data:audio\/[a-z0-9-]+;base64,([A-Za-z0-9+/=]+)/i);
+          if (m && m[1]) {
+            chunks.push(Buffer.from(m[1], 'base64'));
+            continue;
+          }
+          chunks.push(Buffer.from(chunk));
+          continue;
+        }
+
+        if (Buffer.isBuffer(chunk)) {
+          chunks.push(chunk);
+          continue;
+        }
+
+        if (chunk instanceof Uint8Array || chunk instanceof ArrayBuffer) {
+          chunks.push(Buffer.from(chunk as any));
+          continue;
+        }
+
+        // Fallback: attempt to pull a `data` property or stringify
+        try {
+          if (chunk && (chunk as any).data) {
+            chunks.push(Buffer.from((chunk as any).data));
+            continue;
+          }
+        } catch (e) {}
+
+        chunks.push(Buffer.from(String(chunk)));
+      }
+
+      if (chunks.length === 0) throw new Error('Edge TTS produced no audio data');
+      const buffer = Buffer.concat(chunks);
+
+      res.setHeader('Content-Type', 'audio/mpeg');
+      res.setHeader('Content-Length', String(buffer.length));
+      return res.send(buffer);
+    } catch (edgeErr) {
+      // If edge-tts fails for any reason, fall back to Google TTS (free)
+      console.warn('Edge TTS failed, falling back to Google TTS:', (edgeErr as any)?.message || edgeErr);
+
+      try {
+        const googleModule: any = await import('google-tts-api');
+        const google: any = googleModule;
+        const opts = { lang: 'en-US', slow: false, host: 'https://translate.google.com' };
+
+        // If text is short, request a single audio URL
+        if (typeof text === 'string' && text.length <= 200) {
+          const url = google.getAudioUrl(text, opts);
+          const resp = await fetch(url);
+          if (!resp.ok) throw new Error('Google TTS fetch failed: ' + resp.status);
+          const arr = await resp.arrayBuffer();
+          const buffer = Buffer.from(arr);
+
+          res.setHeader('Content-Type', 'audio/mpeg');
+          res.setHeader('Content-Length', String(buffer.length));
+          return res.send(buffer);
+        }
+
+        // For longer text, prefer the library helper that splits into multiple audio URLs
+        let urls: string[] = [];
+        try {
+          if (typeof google.getAllAudioUrls === 'function') {
+            const parts = await google.getAllAudioUrls(text, opts);
+            urls = Array.isArray(parts) ? parts.map((p: any) => (typeof p === 'string' ? p : p.url || p[0] || '')).filter(Boolean) : [];
+          } else if (typeof google.getAllAudioUrl === 'function') {
+            const parts = await google.getAllAudioUrl(text, opts);
+            urls = Array.isArray(parts) ? parts.map((p: any) => (typeof p === 'string' ? p : p.url || p[0] || '')).filter(Boolean) : [];
+          }
+        } catch (splitErr) {
+          console.warn('google-tts-api getAllAudioUrls failed, will attempt manual chunking:', (splitErr as any)?.message || splitErr);
+        }
+
+        // Manual chunking fallback if the library helper is unavailable or returned nothing
+        if (!urls || urls.length === 0) {
+          const maxLen = 200;
+          const words = text.split(/\s+/);
+          let cur = '';
+          const segments: string[] = [];
+          for (const w of words) {
+            if ((cur + ' ' + w).trim().length > maxLen) {
+              if (cur.trim()) segments.push(cur.trim());
+              cur = w;
+            } else {
+              cur = (cur + ' ' + w).trim();
+            }
+          }
+          if (cur.trim()) segments.push(cur.trim());
+
+          for (const seg of segments) {
+            const url = google.getAudioUrl(seg, opts);
+            urls.push(url);
+          }
+        }
+
+        if (!urls || urls.length === 0) {
+          throw new Error('No TTS URLs could be generated for text');
+        }
+
+        // Fetch each segment sequentially and concatenate buffers
+        const segBuffers: Buffer[] = [];
+        for (const u of urls) {
+          const r = await fetch(u);
+          if (!r.ok) throw new Error('Google TTS segment fetch failed: ' + r.status);
+          const a = await r.arrayBuffer();
+          segBuffers.push(Buffer.from(a));
+        }
+
+        const outBuffer = Buffer.concat(segBuffers);
+        res.setHeader('Content-Type', 'audio/mpeg');
+        res.setHeader('Content-Length', String(outBuffer.length));
+        return res.send(outBuffer);
+      } catch (gErr) {
+        console.error('Google TTS fallback failed:', (gErr as any)?.message || gErr);
+        throw gErr;
+      }
+    }
+  } catch (err: any) {
+    console.error('TTS API error:', err?.message || err);
+    if (!isProduction) {
+      return res.status(500).json({ error: 'Failed to generate speech', detail: err?.message || String(err) });
+    }
+    return res.status(500).json({ error: 'Failed to generate speech' });
   }
 });
 

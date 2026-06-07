@@ -478,6 +478,13 @@ if (!websiteId || !apiUrl) {
     micBtn.id = 'ai-chatbot-mic';
     micBtn.innerHTML = '🎤';
 
+    const stopVoiceBtn = document.createElement('button');
+    stopVoiceBtn.className = 'ai-chatbot-stop-btn';
+    stopVoiceBtn.id = 'ai-chatbot-stop-voice';
+    stopVoiceBtn.textContent = 'Stop';
+    stopVoiceBtn.style.display = 'none';
+    stopVoiceBtn.style.marginTop = '8px';
+
     const voiceStatus = document.createElement('div');
     voiceStatus.className = 'ai-chatbot-voice-status';
     voiceStatus.id = 'ai-chatbot-voice-status';
@@ -485,6 +492,7 @@ if (!websiteId || !apiUrl) {
 
     voiceContainer.appendChild(waveform);
     voiceContainer.appendChild(micBtn);
+    voiceContainer.appendChild(stopVoiceBtn);
     voiceContainer.appendChild(voiceStatus);
     voiceContent.appendChild(voiceContainer);
 
@@ -630,9 +638,29 @@ if (!websiteId || !apiUrl) {
 let mediaRecorder;
 let recordedChunks = [];
 let isRecording = false;
+let currentAudio = null; // tracks currently-playing audio element/object
 
 const micBtnElement = panel.querySelector('#ai-chatbot-mic');
 const voiceStatusElement = panel.querySelector('#ai-chatbot-voice-status');
+const stopVoiceBtnElement = panel.querySelector('#ai-chatbot-stop-voice');
+
+if (stopVoiceBtnElement) {
+  stopVoiceBtnElement.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      if (currentAudio) {
+        currentAudio.pause();
+        currentAudio.currentTime = 0;
+      }
+    } catch (err) {
+      console.warn('Error stopping audio', err);
+    }
+    currentAudio = null;
+    try { stopVoiceBtnElement.style.display = 'none'; } catch (e) {}
+    if (voiceStatusElement) voiceStatusElement.textContent = 'Click to start recording';
+  });
+}
 
 async function initializeVoiceRecording() {
   try {
@@ -712,7 +740,15 @@ async function sendVoiceMessage(audioBlob) {
     });
 
     if (!ttsResponse.ok) {
-      throw new Error('TTS API error: ' + ttsResponse.status);
+      // Try to surface backend error details to the user for easier debugging
+      let detail = '';
+      try {
+        const json = await ttsResponse.json();
+        detail = json.detail || json.error || JSON.stringify(json);
+      } catch (e) {
+        try { detail = await ttsResponse.text(); } catch (e) { /* ignore */ }
+      }
+      throw new Error('TTS API error: ' + ttsResponse.status + (detail ? ' - ' + detail : ''));
     }
 
     // The response is the audio file itself
@@ -721,14 +757,25 @@ async function sendVoiceMessage(audioBlob) {
     const audio = new Audio(audioUrl);
     voiceStatusElement.textContent = 'Playing response...';
 
+    // Slightly increase playback rate to normalize perceived speaking speed
+    try { audio.playbackRate = 1.5; } catch (e) {}
+
+    // Track the currently-playing audio so the stop button can cancel it
+    try { currentAudio = audio; } catch (e) {}
+    try { if (stopVoiceBtnElement) stopVoiceBtnElement.style.display = 'inline-block'; } catch (e) {}
+
     audio.onended = () => {
       try { URL.revokeObjectURL(audioUrl); } catch (e) {}
       voiceStatusElement.textContent = 'Click to start recording';
+      try { if (stopVoiceBtnElement) stopVoiceBtnElement.style.display = 'none'; } catch (e) {}
+      currentAudio = null;
     };
 
     audio.onerror = (error) => {
       console.error('Audio playback error:', error);
       voiceStatusElement.textContent = 'Error playing audio';
+      try { if (stopVoiceBtnElement) stopVoiceBtnElement.style.display = 'none'; } catch (e) {}
+      currentAudio = null;
     };
 
     // Play and let the onended handler restore the UI
@@ -739,7 +786,11 @@ async function sendVoiceMessage(audioBlob) {
       const playBtn = panel.querySelector('#ai-chatbot-play-response');
       if (playBtn) {
         playBtn.addEventListener('click', () => {
+          try { audio.playbackRate = 1.15; } catch (e) {}
           audio.play();
+          // ensure stop button shows after user gesture
+          try { currentAudio = audio; } catch (e) {}
+          try { if (stopVoiceBtnElement) stopVoiceBtnElement.style.display = 'inline-block'; } catch (e) {}
           // restore text
           voiceStatusElement.textContent = 'Playing response...';
         });
