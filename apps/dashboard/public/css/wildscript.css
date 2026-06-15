@@ -590,3 +590,38 @@ input[type="range"]::-webkit-slider-thumb {
   .ws-grid-2, .ws-grid-3 { grid-template-columns: 1fr; }
   .ws-content { padding: 16px; }
 }
+
+/* Suggestions UI (dashboard widget tab) */
+.suggestion-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin-top: 8px;
+}
+.suggestion-row .suggestion-question {
+  flex: 1 1 40%;
+}
+.suggestion-row .suggestion-answer {
+  flex: 1 1 55%;
+  min-height: 44px;
+}
+.remove-suggestion {
+  flex: 0 0 auto;
+  height: 40px;
+  align-self: center;
+}
+
+/* Footer */
+.ws-footer {
+	border-top: 1px solid rgba(255,255,255,0.04);
+	padding: 18px 28px;
+	color: #f9f9f9;
+	font-size: 0.9rem;
+	background: #1f0e32;
+	width: 100%;
+}
+.ws-footer-inner { max-width: 1200px; margin: 0 auto; display:flex; justify-content:space-between; align-items:center; gap:12px; }
+.ws-footer-links { display:flex; gap:12px; }
+.ws-footer-links a { color: #f9f9f9; border-bottom: 1px dashed transparent; padding-bottom:2px; }
+.ws-footer-links a:hover { color: var(--ws-glow); border-bottom-color: var(--ws-text-muted); }
+.ws-footer-meta { white-space:nowrap; }

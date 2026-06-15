@@ -205,7 +205,25 @@
             <label>Primary color</label>
             <input id="primaryColor" type="color" value="#00E5FF" />
             <label>Suggested prompts (comma-separated)</label>
-            <input id="suggestedPrompts" placeholder="Pricing, Contact us, Features" />
+            <label>Suggested questions</label>
+            <div id="suggestionsContainer">
+              <div class="suggestion-row">
+                <input class="suggestion-question" placeholder="Question (e.g., What are your prices?)" />
+                <textarea class="suggestion-answer" placeholder="Optional specific answer (leave empty for AI to answer)"></textarea>
+                <button type="button" class="remove-suggestion ws-btn ws-btn-secondary ws-btn-sm" style="margin-left:8px;">Remove</button>
+              </div>
+              <div class="suggestion-row">
+                <input class="suggestion-question" placeholder="Question" />
+                <textarea class="suggestion-answer" placeholder="Optional specific answer (leave empty for AI to answer)"></textarea>
+                <button type="button" class="remove-suggestion ws-btn ws-btn-secondary ws-btn-sm" style="margin-left:8px;">Remove</button>
+              </div>
+              <div class="suggestion-row">
+                <input class="suggestion-question" placeholder="Question" />
+                <textarea class="suggestion-answer" placeholder="Optional specific answer (leave empty for AI to answer)"></textarea>
+                <button type="button" class="remove-suggestion ws-btn ws-btn-secondary ws-btn-sm" style="margin-left:8px;">Remove</button>
+              </div>
+            </div>
+            <button type="button" id="addSuggestion" class="ws-btn ws-btn-secondary ws-btn-sm">Add suggestion</button>
             <label><input type="checkbox" id="autoOpen" /> Auto-open widget on page load</label>
             <button type="button" class="ws-btn ws-btn-primary" id="saveWidgetSettings">Save widget settings</button>
             <div id="widgetResult"></div>
@@ -263,5 +281,16 @@
 
   <script src="/config.js"></script>
   <script type="module" src="/dashboard.js?v=2"></script>
+  <footer class="ws-footer">
+    <div class="ws-footer-inner">
+      <div class="ws-footer-links">
+        <a href="https://www.linkedin.com/in/ryan-jay-pasulohan-0a7413254/" target="_blank">LinkedIn</a>
+        <a href="https://www.upwork.com/freelancers/~01dbc7860414d71ecf" target="_blank">Upwork</a>
+        <a href="https://portfolio2026-9z5c.vercel.app/" target="_blank">Portfolio</a>
+        <a href="https://portfolio2026-9z5c.vercel.app/ryanjaypasulohan.pdf" target="_blank">Resume</a>
+      </div>
+      <div class="ws-footer-meta">Brought to life by Ryan Jay — © 2026</div>
+    </div>
+  </footer>
 </body>
 </html>

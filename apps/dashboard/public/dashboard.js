@@ -430,6 +430,23 @@ async function loadWidgetSettings() {
   document.querySelectorAll('.position-btn').forEach((btn) => {
     btn.classList.toggle('selected', btn.getAttribute('data-pos') === selectedPosition);
   });
+
+  // Load suggested prompts (structured) into the widget settings UI
+  try {
+    const suggestions = Array.isArray(settings.suggestedPrompts) ? settings.suggestedPrompts : [];
+    const container = document.getElementById('suggestionsContainer');
+    if (container) {
+      container.innerHTML = '';
+      const ensure = Math.max(3, suggestions.length || 3);
+      for (let i = 0; i < ensure; i += 1) {
+        const s = suggestions[i] || { question: '', answer: '' };
+        addSuggestionRow(s.question || '', s.answer || '');
+      }
+    }
+  } catch (e) {
+    // Non-fatal: keep existing suggestion rows
+    console.warn('Failed to populate suggested prompts', e);
+  }
 }
 
 function selectPosition(position) {
@@ -438,6 +455,20 @@ function selectPosition(position) {
   document.querySelectorAll('.position-btn').forEach((btn) => {
     btn.classList.toggle('selected', btn.getAttribute('data-pos') === position);
   });
+}
+
+function addSuggestionRow(question = '', answer = '') {
+  const container = $('suggestionsContainer');
+  if (!container) return;
+  const row = document.createElement('div');
+  row.className = 'suggestion-row';
+  row.innerHTML = `
+    <input class="suggestion-question" placeholder="Question" value="${escapeHtml(question)}" />
+    <textarea class="suggestion-answer" placeholder="Optional specific answer (leave empty for AI to answer)">${escapeHtml(answer)}</textarea>
+    <button type="button" class="remove-suggestion ws-btn ws-btn-secondary ws-btn-sm" style="margin-left:8px;">Remove</button>
+  `;
+  container.appendChild(row);
+  row.querySelector('.remove-suggestion')?.addEventListener('click', () => row.remove());
 }
 
 async function saveWidgetSettings() {
@@ -454,6 +485,22 @@ async function saveWidgetSettings() {
     theme: $('theme').value,
     primaryColor: $('primaryColor').value,
   };
+
+  // Collect structured suggested prompts from the UI
+  try {
+    const suggestionRows = Array.from(document.querySelectorAll('#suggestionsContainer .suggestion-row'));
+    const suggestedPrompts = suggestionRows
+      .map((row) => {
+        const q = row.querySelector('.suggestion-question')?.value?.trim() || '';
+        const a = row.querySelector('.suggestion-answer')?.value?.trim() || '';
+        return q ? { question: q, answer: a || null } : null;
+      })
+      .filter(Boolean);
+    // Always include the property so the API can persist an empty array if admin removed all
+    settings.suggestedPrompts = suggestedPrompts;
+  } catch (e) {
+    console.warn('Failed to collect suggested prompts', e);
+  }
 
   const res = await fetch(`${apiBase}/api/websites/${websiteId}/widget-settings`, {
     method: 'PUT',
@@ -487,6 +534,19 @@ async function loadAiConfig() {
   $('tempValue').textContent = $('aiTemperature').value;
   $('responseLength').value = ai.responseLength || 'medium';
   $('aiLanguage').value = ai.language || 'en';
+
+  // Load suggested prompts (structured)
+  const suggestions = settings.suggestedPrompts || [];
+  const container = document.getElementById('suggestionsContainer');
+  if (container) {
+    // Clear existing rows and ensure at least 3 slots
+    container.innerHTML = '';
+    const ensure = Math.max(3, suggestions.length || 3);
+    for (let i = 0; i < ensure; i += 1) {
+      const s = suggestions[i] || { question: '', answer: '' };
+      addSuggestionRow(s.question || '', s.answer || '');
+    }
+  }
   $('aiTone').value = ai.tone || 'helpful';
 }
 
@@ -595,6 +655,18 @@ async function loadConversations() {
 
   if (!Array.isArray(conversations)) {
     listEl.innerHTML = '<div class="ws-alert ws-alert-error">Failed to load conversations.</div>';
+
+  // collect suggestions
+  const suggestionRows = Array.from(document.querySelectorAll('#suggestionsContainer .suggestion-row'));
+  const suggestedPrompts = suggestionRows
+    .map((row) => {
+      const q = row.querySelector('.suggestion-question')?.value?.trim() || '';
+      const a = row.querySelector('.suggestion-answer')?.value?.trim() || '';
+      return q ? { question: q, answer: a || null } : null;
+    })
+    .filter(Boolean);
+
+  if (suggestedPrompts.length) settings.suggestedPrompts = suggestedPrompts;
     return;
   }
 
@@ -793,6 +865,13 @@ document.addEventListener('DOMContentLoaded', () => {
   $('contentWebsiteId')?.addEventListener('change', loadWebsitePages);
   $('widgetWebsiteId')?.addEventListener('change', loadWidgetSettings);
   $('saveWidgetSettings')?.addEventListener('click', saveWidgetSettings);
+  $('addSuggestion')?.addEventListener('click', () => addSuggestionRow());
+  document.querySelectorAll('.remove-suggestion').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      const row = btn.closest('.suggestion-row');
+      row?.remove();
+    });
+  });
   $('aiWebsiteId')?.addEventListener('change', loadAiConfig);
   $('saveAiConfig')?.addEventListener('click', saveAiConfig);
   $('analyticsWebsiteId')?.addEventListener('change', loadAnalytics);

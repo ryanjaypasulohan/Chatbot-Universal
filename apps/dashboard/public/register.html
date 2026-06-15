@@ -23,6 +23,9 @@
       <label for="password">Password</label>
       <input id="password" type="password" autocomplete="new-password" placeholder="Min. 6 characters" />
 
+      <label for="confirmPassword">Confirm password</label>
+      <input id="confirmPassword" type="password" autocomplete="new-password" placeholder="Repeat your password" />
+
       <button type="button" class="ws-btn ws-btn-primary" id="registerBtn" style="width:100%">Create account</button>
 
       <p style="text-align:center;margin-top:20px;color:var(--ws-text-muted)">
@@ -44,13 +47,23 @@
       msgEl.innerHTML = '';
       const email = document.getElementById('email').value.trim();
       const password = document.getElementById('password').value;
-      if (!email || !password) {
-        msgEl.innerHTML = '<div class="ws-alert ws-alert-error">Provide email and password.</div>';
+      const confirm = document.getElementById('confirmPassword').value;
+      if (!email || !password || !confirm) {
+        msgEl.innerHTML = '<div class="ws-alert ws-alert-error">Provide email and both password fields.</div>';
+        return;
+      }
+      if (password.length < 6) {
+        msgEl.innerHTML = '<div class="ws-alert ws-alert-error">Password must be at least 6 characters.</div>';
+        return;
+      }
+      if (password !== confirm) {
+        msgEl.innerHTML = '<div class="ws-alert ws-alert-error">Passwords do not match.</div>';
         return;
       }
 
       const { error } = await supabase.auth.signUp({ email, password });
       if (error) {
+        // Surface detailed error from Supabase (helps diagnose DB/backend issues)
         msgEl.innerHTML = `<div class="ws-alert ws-alert-error">${error.message}</div>`;
         return;
       }
@@ -58,5 +71,16 @@
       msgEl.innerHTML = '<div class="ws-alert ws-alert-success">Account created. Check your email to confirm, then <a href="/login.html">sign in</a>.</div>';
     });
   </script>
+  <footer class="ws-footer">
+    <div class="ws-footer-inner">
+      <div class="ws-footer-links">
+        <a href="https://www.linkedin.com/in/ryan-jay-pasulohan-0a7413254/" target="_blank">LinkedIn</a>
+        <a href="https://www.upwork.com/freelancers/~01dbc7860414d71ecf" target="_blank">Upwork</a>
+        <a href="https://portfolio2026-9z5c.vercel.app/" target="_blank">Portfolio</a>
+        <a href="https://portfolio2026-9z5c.vercel.app/ryanjaypasulohan.pdf" target="_blank">Resume</a>
+      </div>
+      <div class="ws-footer-meta">Brought to life by Ryan Jay — © 2026</div>
+    </div>
+  </footer>
 </body>
 </html>

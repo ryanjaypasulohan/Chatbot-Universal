@@ -1102,11 +1102,18 @@ app.get('/api/websites/:id/widget-settings', async (req, res) => {
       return res.status(410).json({ error: 'Website archived' });
     }
 
-    const { data, error } = await supabase.from('widget_settings').select('*').eq('website_id', id).single();
+    // Read widget_settings row (if any)
+    const { data: widgetRow, error } = await supabase.from('widget_settings').select('*').eq('website_id', id).single();
     if (error && error.code !== 'PGRST116') {
       return res.status(500).json({ error: error.message });
     }
-    res.json(mapWidgetSettingsToClient(data, id));
+
+    const client = mapWidgetSettingsToClient(widgetRow, id);
+    // Merge in any suggested prompts stored in websites.settings (backwards-compatible)
+    const siteSettings = website?.settings || {};
+    (client as any).suggestedPrompts = (siteSettings?.widget?.suggestedPrompts) || siteSettings?.suggestedPrompts || [];
+
+    res.json(client);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -1120,16 +1127,38 @@ app.put('/api/websites/:id/widget-settings', async (req, res) => {
     if (!ownership) return;
     const { data: existing } = await supabase.from('widget_settings').select('id').eq('website_id', id).single();
     const row = widgetSettingsFromBody(id, req.body);
-
+    let savedRow;
     if (existing) {
       const { data, error } = await supabase.from('widget_settings').update(row).eq('website_id', id).select().single();
       if (error) throw error;
-      res.json(mapWidgetSettingsToClient(data, id));
+      savedRow = data;
     } else {
       const { data, error } = await supabase.from('widget_settings').insert([row]).select().single();
       if (error) throw error;
-      res.json(mapWidgetSettingsToClient(data, id));
+      savedRow = data;
     }
+
+    // If the client provided suggestedPrompts, persist them into websites.settings.widget.suggestedPrompts
+    try {
+      const suggested = Array.isArray(req.body.suggestedPrompts) ? req.body.suggestedPrompts : undefined;
+      if (suggested) {
+        const { data: current } = await supabase.from('websites').select('settings').eq('id', id).single();
+        const currentSettings = current?.settings || {};
+        const newWidgetSettings = { ...(currentSettings?.widget || {}), suggestedPrompts: suggested };
+        const newSettings = { ...(currentSettings || {}), widget: newWidgetSettings };
+        await supabase.from('websites').update({ settings: newSettings }).eq('id', id);
+      }
+    } catch (e) {
+      // non-fatal: log and continue
+      console.warn('Failed to persist suggestedPrompts in websites.settings', e);
+    }
+
+    // Return merged settings including suggestions
+    const client = mapWidgetSettingsToClient(savedRow, id);
+    const { data: websiteAfter } = await supabase.from('websites').select('settings').eq('id', id).single();
+    (client as any).suggestedPrompts = (websiteAfter?.settings?.widget?.suggestedPrompts) || websiteAfter?.settings?.suggestedPrompts || [];
+
+    res.json(client);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
