@@ -134,7 +134,7 @@ if (!websiteId || !apiUrl) {
       try { return `<a href="${url}" target="_blank" class="cta-link">🔗 ${new URL(url).hostname}</a>`; } catch (e) { return url; }
     });
     const emailRegex = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/gi;
-    hhtml = html.replace(emailRegex, (email) => `<a href="mailto:${email}">${email}</a>`);
+    html = html.replace(emailRegex, (email) => `<a href="mailto:${email}">${email}</a>`);
     const phoneRegex = /(\+?1?\s?[-.\s]?\(?[2-9]\d{2}\)?[-.\s]?\d{3}[-.\s]?\d{4})/g;
     html = html.replace(phoneRegex, (phone) => `<a href="tel:${phone.replace(/\D/g, '')}" class="cta-link">☎️ ${phone}</a>`);
     return html;
