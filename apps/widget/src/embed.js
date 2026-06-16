@@ -15,6 +15,49 @@ if (!websiteId || !apiUrl) {
     suggestedPrompts: [],
   };
 
+  // --- DOMAIN VERIFICATION (fixed for localhost with port) ---
+  async function verifyDomain() {
+    try {
+      const baseApi = apiUrl.replace('/api/chat', '');
+      const resp = await fetch(`${baseApi}/api/websites/${websiteId}/domain`);
+      if (!resp.ok) throw new Error('Failed to fetch domain');
+      const data = await resp.json();
+      const allowedDomain = data.domain;
+
+      const currentHost = window.location.host; // includes port
+
+      const normalize = (d) => {
+        let normalized = d.toLowerCase();
+        normalized = normalized.replace(/^https?:\/\//, '');
+        normalized = normalized.replace(/^www\./, '');
+        normalized = normalized.split('/')[0];
+        return normalized;
+      };
+
+      const allowed = normalize(allowedDomain);
+      const current = normalize(currentHost);
+
+      console.log(`[Domain Check] Allowed: "${allowed}", Current: "${current}"`);
+
+      if (allowed !== current) {
+        console.error(`[AI Chatbot] Domain mismatch. Allowed: ${allowed}, Current: ${current}`);
+        const errorDiv = document.createElement('div');
+        errorDiv.style.cssText = 'position:fixed; bottom:20px; right:20px; background:#fee; color:#b91c1c; padding:12px 20px; border-radius:12px; font-family:sans-serif; font-size:14px; box-shadow:0 4px 12px rgba(0,0,0,0.15); z-index:999999;';
+        errorDiv.textContent = `❌ This chatbot is not authorized for this website. (Allowed: ${allowed}, Current: ${current})`;
+        document.body.appendChild(errorDiv);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      console.error('Domain verification error:', err);
+      const errorDiv = document.createElement('div');
+      errorDiv.style.cssText = 'position:fixed; bottom:20px; right:20px; background:#fee; color:#b91c1c; padding:12px 20px; border-radius:12px; font-family:sans-serif; font-size:14px; box-shadow:0 4px 12px rgba(0,0,0,0.15); z-index:999999;';
+      errorDiv.textContent = '❌ Domain verification failed. Please try again later.';
+      document.body.appendChild(errorDiv);
+      return false;
+    }
+  }
+
   // Persistence helpers
   const storageKey = `ai_chatbot_${websiteId}`;
   let sessionId = null;
@@ -42,17 +85,25 @@ if (!websiteId || !apiUrl) {
     return false;
   }
 
-  fetch(`${apiUrl.replace('/api/chat', '')}/api/websites/${websiteId}/widget-settings`)
-    .then(res => res.json())
-    .then(settings => {
-      widgetSettings = settings;
+  async function initAfterVerification() {
+    const domainOk = await verifyDomain();
+    if (!domainOk) return;
+
+    try {
+      const resp = await fetch(`${apiUrl.replace('/api/chat', '')}/api/websites/${websiteId}/widget-settings`);
+      if (!resp.ok) throw new Error('Failed to fetch widget settings');
+      const settings = await resp.json();
+      widgetSettings = { ...widgetSettings, ...settings };
       initializeWidget(widgetSettings);
-    })
-    .catch(err => {
+    } catch (err) {
       console.error('Failed to load widget settings:', err);
       initializeWidget(widgetSettings);
-    });
+    }
+  }
 
+  initAfterVerification();
+
+  // ---- Helper functions (now inside the same scope) ----
   function getPositionStyles(position) {
     const isMobile = window.innerWidth < 768;
     const mobilePosition = isMobile ? 'bottom-left' : position;
@@ -83,7 +134,7 @@ if (!websiteId || !apiUrl) {
       try { return `<a href="${url}" target="_blank" class="cta-link">🔗 ${new URL(url).hostname}</a>`; } catch (e) { return url; }
     });
     const emailRegex = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/gi;
-    html = html.replace(emailRegex, (email) => `<a href="mailto:${email}" class="cta-link">📧 ${email}</a>`);
+    hhtml = html.replace(emailRegex, (email) => `<a href="mailto:${email}">${email}</a>`);
     const phoneRegex = /(\+?1?\s?[-.\s]?\(?[2-9]\d{2}\)?[-.\s]?\d{3}[-.\s]?\d{4})/g;
     html = html.replace(phoneRegex, (phone) => `<a href="tel:${phone.replace(/\D/g, '')}" class="cta-link">☎️ ${phone}</a>`);
     return html;
@@ -98,6 +149,7 @@ if (!websiteId || !apiUrl) {
     suggestionsRemoved = true;
   }
 
+  // ---- Main widget initializer ----
   function initializeWidget(settings) {
     const style = document.createElement('style');
     style.textContent = `
@@ -793,4 +845,5 @@ if (!websiteId || !apiUrl) {
     window.addEventListener('resize', refreshPositioning);
     refreshPositioning();
   }
-}
+
+} // end of main if block
