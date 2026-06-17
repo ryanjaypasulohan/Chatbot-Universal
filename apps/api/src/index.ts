@@ -1730,6 +1730,65 @@ app.get('/dashboard.html', (_req, res) => {
 
 const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST || '0.0.0.0';
+
+// ============================================
+// 🧹 AUTO-CLEANUP: Delete messages & sessions older than 7 days
+// ============================================
+
+const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+async function cleanupOldChatData() {
+  try {
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const isoDate = sevenDaysAgo.toISOString();
+
+    console.log(`🧹 Running cleanup: Deleting data older than ${isoDate}`);
+
+    // 1. Delete old messages
+    const { error: msgError, count: msgCount } = await supabase
+      .from('messages')
+      .delete({ count: 'exact' })
+      .lt('created_at', isoDate);
+
+    if (msgError) throw msgError;
+    console.log(`   Deleted ${msgCount ?? 0} messages.`);
+
+    // 2. Delete old sessions that have NO messages left (orphaned)
+    //    First, get all session IDs that still have messages (even if they are newer).
+    //    We'll delete sessions that are older than 7 days AND not in that list.
+    const { data: activeSessionIds, error: activeError } = await supabase
+      .from('messages')
+      .select('session_id')
+      .not('session_id', 'is', null);
+
+    if (activeError) throw activeError;
+
+    // Build a set of active session IDs that still have messages
+    const activeSet = new Set(activeSessionIds?.map(row => row.session_id) ?? []);
+
+    // Now delete sessions older than 7 days that are NOT in the active set
+    const { error: sessionError, count: sessionCount } = await supabase
+      .from('chat_sessions')
+      .delete({ count: 'exact' })
+      .lt('created_at', isoDate)
+      .not('id', 'in', `(${Array.from(activeSet).map(id => `'${id}'`).join(',')})`);
+
+    if (sessionError) throw sessionError;
+    console.log(`   Deleted ${sessionCount ?? 0} orphaned sessions.`);
+
+    console.log('✅ Cleanup complete.');
+  } catch (error) {
+    console.error('❌ Cleanup failed:', error);
+  }
+}
+
+// Run cleanup immediately when the server starts
+cleanupOldChatData();
+
+// Schedule cleanup every 24 hours
+setInterval(cleanupOldChatData, CLEANUP_INTERVAL_MS);
+
 app.listen(port, host, () => {
   const publicUrl = process.env.PUBLIC_APP_URL || `http://localhost:${port}`;
   console.log(`Wild Script API running on ${host}:${port}`);

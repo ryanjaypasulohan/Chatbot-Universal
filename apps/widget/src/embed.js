@@ -52,7 +52,7 @@ if (!websiteId || !apiUrl) {
       console.error('Domain verification error:', err);
       const errorDiv = document.createElement('div');
       errorDiv.style.cssText = 'position:fixed; bottom:20px; right:20px; background:#fee; color:#b91c1c; padding:12px 20px; border-radius:12px; font-family:sans-serif; font-size:14px; box-shadow:0 4px 12px rgba(0,0,0,0.15); z-index:999999;';
-      errorDiv.textContent = '❌ Domain verification failed. Please try again later.';
+      errorDiv.textContent = 'Oops! Something went wrong. Please contact the website administrator.';
       document.body.appendChild(errorDiv);
       return false;
     }
